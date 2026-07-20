@@ -1,0 +1,13 @@
+groq
+python-dotenv>=1.0.0
+requests 
+ddgs 
+chromadb 
+sentence-transformers 
+rich
+pytesseract 
+pillow
+pandas
+streamlit
+pypdf 
+python-docx 
