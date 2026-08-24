@@ -1,0 +1,11 @@
+Customer_ID,Name,Age,Total_Purchase,Account_Manager_Assigned,Account_Manager,Years,Num_sites,Onboard_date,Location,Company,Churn,churn_risk_score
+C101,Sarah Jenkins,42,12500.50,1,Rachel Green,4.2,3,2022-03-15,"New York, NY",TechCorp,1,0.94
+C102,Michael Chang,38,8900.00,0,None,2.1,2,2024-01-10,"San Francisco, CA",DataLine,0,0.21
+C103,Elena Rostova,51,21000.75,1,Carlos Vance,6.5,5,2020-07-22,"Chicago, IL",Apex Media,1,0.88
+C104,David Miller,29,4500.20,0,None,1.0,1,2025-05-18,"Austin, TX",DevPulse,0,0.15
+C105,Amara Okafor,45,17800.00,1,Rachel Green,5.0,4,2021-11-04,"Seattle, WA",CloudNet,1,0.91
+C106,James Wilson,33,6200.00,0,None,3.3,2,2023-09-30,"Boston, MA",BioHealth,0,0.42
+C107,Priya Patel,48,19400.10,1,David Kim,5.8,4,2021-02-14,"Denver, CO",LogiGlobal,1,0.85
+C108,Robert Taylor,55,31000.00,1,Carlos Vance,8.1,6,2018-04-12,"Atlanta, GA",OmniGroup,1,0.96
+C109,Sophia Martinez,31,7300.50,0,None,1.8,2,2024-06-01,"Miami, FL",FinServe,0,0.33
+C110,Marcus Vance,40,14200.80,1,David Kim,4.0,3,2022-08-19,"Dallas, TX",CyberShield,1,0.79

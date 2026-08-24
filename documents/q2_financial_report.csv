@@ -1,0 +1,8 @@
+Department,Quarter,Budget_Allocated,Actual_Spend,Headcount
+Engineering,Q1,150000,145000,25
+Engineering,Q2,180000,195000,28
+Sales,Q1,200000,210000,40
+Sales,Q2,220000,205000,42
+Marketing,Q1,90000,88000,12
+Marketing,Q2,95000,102000,12
+HR,Q1,50000,48000,5
