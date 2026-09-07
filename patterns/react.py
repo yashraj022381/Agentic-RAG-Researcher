@@ -46,14 +46,31 @@ class ReActPattern(BasePattern):
             f"data requested doesn't exist, say so plainly and stop there.\n"
         )
         prompt = self._build_think_prompt(query, scratchpad, registry, extra)
-        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536, purpose="think")
+        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=2048, purpose="think")
         return self._parse_decision(raw, scratchpad)
 
     def post_process(self, tool_result, query, scratchpad, llm, registry, tool_name=None):
+        if self._check_verified_computed_result(tool_result, "react_status"):
+            return tool_result
+        if self._apply_prior_correction_wrap(tool_result, scratchpad, "react_status", "Web correction"):
+            return tool_result
+
+        # ReAct doesn't run its own grading pass — that's CRAG's/Self-RAG's
+        # distinct principle. It trusts whatever confidence the tool itself
+        # already reported, and only reaches for the shared web fallback as a
+        # safety net when that confidence is genuinely low.
+        if self._maybe_flag_web_fallback(tool_result, scratchpad, tool_result.confidence, "react_status"):
+            return tool_result
+
+        # react.py, crag.py, selfrag.py — add this line in post_process, e.g. :
+        self._maybe_flag_calculation_needed(tool_result, scratchpad, query, "react_status")  # or "crag_status"/"selfrag_status"
+
+        tool_result.metadata["react_status"] = "accepted"
         return tool_result
 
+
     def synthesize(self, query, scratchpad, llm) -> str:
-        context = scratchpad.all_observations()
+        context = scratchpad.all_observations(max_chars=6000, per_step_chars=2000)
         known_fact_note = get_known_fact_note(query)
 
         calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
@@ -88,6 +105,14 @@ class ReActPattern(BasePattern):
            f"CRITICAL DISAMBIGUATION RULE:\n"
            f"If the FINDINGS describe an ORGANIZATION, COMPANY, or FILM/BRAND that "
            f"shares a name with a person the question asks about, do NOT treat the "
+           f"Similarly, if a web search result describes a DIFFERENT organization that"
+           f"merely shares a similar or partial name with the one the question asks"
+           f"about (e.g. different industry, different fiscal year structure, or"
+           f"explicitly a different stock ticker/listing), do NOT treat that"
+           f"organization's figures as if they answer the question. State clearly that"
+           f"the search found a differently-named or similarly-named but unrelated"
+           f"entity, and that no data for the specific company in question was found — \n"
+           f"do not silently imply the search returned nothing at all."
            f"organization's attributes as if they belong to a person. State clearly "
            f"that the name matches an organization, not an individual, and that no "
            f"information about the specific person was found.\n"
@@ -114,9 +139,58 @@ class ReActPattern(BasePattern):
            f"it and say that detail wasn't found in the reviewed excerpt instead.\n\n"
            f"Wrap the final answer in <final_answer>...</final_answer>."
         )
-        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536)
+        try:
+            raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536)
+        except RuntimeError as e:
+            err_str = str(e).lower()
+            if "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str:
+                print("      ⚠️ Model attempted a native tool call during synthesis — "
+                      "retrying with a firmer no-tool-calls instruction.")
+                firmer_prompt = prompt + (
+                    "\n\nIMPORTANT: Do NOT call any tool, function, or browser action of "
+                    "any kind — none are available to you right now. You already have "
+                    "everything you need in the FINDINGS above; use only that. Write your "
+                    "answer as plain prose text, wrapped in <final_answer>...</final_answer>, "
+                    "and nothing else."
+                )
+                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=1536, purpose="synthesize")
+            else:
+                raise
+
         parsed = ResponseParser.parse(raw)
-        return parsed.final_answer or raw
+        final_text = (parsed.final_answer or raw).strip()
+
+        def _looks_like_tool_call(text: str) -> bool:
+            t = text.strip()
+            return t.startswith("{") and ('"action"' in t or '"tool"' in t or '"parameters"' in t)
+
+
+        #return parsed.final_answer or raw
+        if _looks_like_tool_call(final_text):
+            print("      ⚠️ Synthesis returned a raw tool-call-shaped JSON instead of prose — retrying with a firmer instruction.")
+            retry_prompt = prompt + (
+                "\n\nIMPORTANT: Do NOT call any tool or emit JSON of any kind. You "
+                "already have everything you need in FINDINGS above — use it. Write "
+                "your answer as plain prose text only, wrapped in "
+                "<final_answer>...</final_answer>, and nothing else."
+            )
+            try:
+                raw_retry = llm.chat(system=self.system_prompt, user=retry_prompt, max_tokens=1536)
+                parsed_retry = ResponseParser.parse(raw_retry)
+                retry_text = (parsed_retry.final_answer or raw_retry).strip()
+                final_text = retry_text if not _looks_like_tool_call(retry_text) else (
+                    "The research gathered relevant information, but the model's "
+                    "response could not be converted into a plain-text answer. "
+                    "Please try rephrasing the question or running it again."
+                )
+            except Exception:
+                final_text = (
+                    "The research gathered relevant information, but the model's "
+                    "response could not be converted into a plain-text answer. "
+                    "Please try rephrasing the question or running it again."
+                )
+
+        return final_text
 
     @staticmethod
     def _parse_decision(raw: str, scratchpad=None) -> AgentDecision:
@@ -124,7 +198,6 @@ class ReActPattern(BasePattern):
         thought = parsed.thought or "Thinking about next step..."
         
         action_data = {}
-        #action_str = parsed.action.strip() if parsed.action else ""
         if parsed.action and parsed.action.strip().startswith("{"):
             # Trim anything after the last balanced '}' — repairs stray trailing
             # characters some models append (e.g. an extra closing quote) without
@@ -143,41 +216,8 @@ class ReActPattern(BasePattern):
                 #action_data = {}
 
         if not action_data:
-            # Don't blindly repeat document_reader if it already produced a
-            # real, usable result — that just re-reads the same file for no
-            # new information. Check whether ANY prior step already returned
-            # substantial, non-empty, non-"not found" content before deciding
-            # to retry vs. finish with what's already gathered.
-            has_usable_prior = False
-            if scratchpad is not None:
-                no_info_markers = (
-                    "does not contain", "not provided in", "cannot be found",
-                    "no information", "not found in", "no relevant information",
-                )
-                for s in scratchpad.steps:
-                    obs = (s.observation or "").strip()
-                    if len(obs) > 100 and not any(m in obs.lower() for m in no_info_markers):
-                        has_usable_prior = True
-                        break
+            return BasePattern._fallback_decision_on_parse_failure(thought, scratchpad)
 
-            if has_usable_prior:
-                 print("      ⚠️ No action parsed, but usable data was already "
-                       "gathered — finishing instead of repeating a tool call.")
-                 return AgentDecision(
-                     thought=thought + " (action parsing failed — sufficient data already gathered)",
-                     tool_name="synthesizer",
-                     tool_input="",
-                     is_final=True,
-                 )
-
-                    
-            print(f"      ⚠️ No action parsed from model output — defaulting to document_reader retry.")
-            return AgentDecision(
-                thought=thought + " (action parsing failed — retrying)",
-                tool_name="document_reader",
-                tool_input="",
-                is_final=False,
-            )
 
 
         tool = action_data.get("tool") or "web_search"
@@ -185,7 +225,6 @@ class ReActPattern(BasePattern):
 
         is_final = tool.upper() == "FINISH"
 
-        #print(f"      ⚠️ No action parsed from model output — defaulting to document_reader retry.")
         return AgentDecision(
             thought=thought,
             tool_name=tool if not is_final else "synthesizer",
