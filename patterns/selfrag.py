@@ -1,7 +1,7 @@
 import re
 import json
 from typing import TYPE_CHECKING
-from .base import BasePattern, AgentDecision
+from .base import BasePattern, AgentDecision #_check_verified_computed_result, _apply_prior_correction_wrap, _is_trivially_empty 
 from utils.parser import ResponseParser
 from utils.known_facts import get_known_fact_note
 
@@ -71,26 +71,71 @@ class SelfRAGPattern(BasePattern):
             f"data requested doesn't exist, say so plainly and stop there.\n"
         )
         prompt = self._build_think_prompt(query, scratchpad, registry, extra)
-        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536, purpose="think")
+        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=2048, purpose="think")
         return self._parse_decision(raw, scratchpad)
 
     def post_process(self, tool_result, query, scratchpad, llm, registry, tool_name=None):
-        return tool_result
+        
+        if self._check_verified_computed_result(tool_result, "selfrag_status"):
+            return tool_result
 
+        if self._apply_prior_correction_wrap(tool_result, scratchpad, "selfrag_status", "Web correction"):
+            return tool_result
+
+        low_grade_steps = sum(1 for s in scratchpad.steps if s.grade < self.relevance_threshold)
+
+        grade = 0.0 if self._is_trivially_empty(tool_result.content) else llm.grade(
+            RELEVANCE_GRADER_PROMPT.format(query=query, content=tool_result.content.strip()[:800])
+        )
+        tool_result.metadata["grade"] = grade
+
+        if self._maybe_flag_web_fallback(
+            tool_result, scratchpad, grade, "selfrag_status",
+            threshold=self.relevance_threshold, max_retries=self.max_retries,
+        ):
+            return tool_result
+
+        # react.py, crag.py, selfrag.py — add this line in post_process, e.g.:
+        self._maybe_flag_calculation_needed(tool_result, scratchpad, query, "selfrag_status")  # or "crag_status"/"selfrag_status"
+        """
+        if self._is_trivially_empty(tool_result.content):
+            if low_grade_steps < self.max_retries and tool_result.metadata.get("tool_used") != "web_search":
+                tool_result.metadata["grade"] = 0.0
+                tool_result.metadata["needs_correction"] = True
+                tool_result.metadata["corrected"] = True
+                tool_result.metadata["selfrag_status"] = "needs_web_fallback"
+                tool_result.confidence = 0.2
+            return tool_result
+    
+        #return tool_result
+        if "VERIFIED COMPUTED RESULT" in (tool_result.content or ""):
+            tool_result.metadata["selfrag_status"] = "verified_computed"
+            tool_result.metadata["grade"] = 1.0
+            tool_result.confidence = max(tool_result.confidence, 0.95)
+            return tool_result
+        
         content = tool_result.content.strip()
+        grade_prompt = RELEVANCE_GRADER_PROMPT.format(query=query, content=content[:800])
+        grade = llm.grade(grade_prompt)
+        tool_result.metadata["grade"] = grade
 
-        if len(content) < 100 or "no highly relevant" in content.lower():
-            fallback_tool = registry.get("web_search")
-            if fallback_tool:
-                fallback = fallback_tool.run(
-                    query=query,
-                    context=scratchpad.context_for_prompt(),
-                )
-                fallback.metadata["tool_used"] = "web_search"
-                fallback.metadata["selfrag_retry"] = True
-                fallback.metadata["grade"] = 0.7
-                fallback.confidence = max(fallback.confidence, 0.7)
-                return fallback
+        if (grade < self.relevance_threshold
+        and low_grade_steps < self.max_retries
+        and tool_result.metadata.get("tool_used") != "web_search"):
+            tool_result.metadata["needs_correction"] = True
+            tool_result.metadata["corrected"] = True
+            tool_result.metadata["selfrag_status"] = "needs_web_fallback"
+            tool_result.confidence = grade
+            return tool_result
+
+
+        if (grade < self.relevance_threshold
+            and low_grade_steps < self.max_retries
+            and tool_result.metadata.get("tool_used") != "web_search"):
+            tool_result.metadata["needs_correction"] = True
+            tool_result.metadata["corrected"] = True
+            tool_result.metadata["selfrag_status"] = "needs_web_fallback"
+            tool_result.confidence = grade
             return tool_result
 
         grade_prompt = RELEVANCE_GRADER_PROMPT.format(
@@ -99,59 +144,16 @@ class SelfRAGPattern(BasePattern):
         )
         grade = llm.grade(grade_prompt)
         tool_result.metadata["grade"] = grade
-
-        if ("compare" in query.lower() or " vs " in query.lower() or "who started" in query.lower()) \
-                and any(kw in query.lower() for kw in ["founded", "founding", "started first", "company", "organization"]):
-            import re
-            words = re.findall(r'\b[A-Z][a-z]+\b', query)
-            all_content = (scratchpad.all_observations() + content).lower()
-            missing = [w for w in words if w.lower() not in all_content]
-            if missing:
-                fallback_tool = registry.get("web_search")
-                if fallback_tool:
-                    fallback = fallback_tool.run(
-                        query=f"{missing[0]} founding history",
-                        context=scratchpad.context_for_prompt(),
-                    )
-                    fallback.metadata["tool_used"] = "web_search"
-                    fallback.metadata["selfrag_retry"] = True
-                    return fallback
-
-        low_grade_steps = sum(
-            1 for s in scratchpad.steps
-            if s.grade < self.relevance_threshold
-        )
-
-        if (grade < self.relevance_threshold
-            and low_grade_steps < self.max_retries
-            and tool_result.metadata.get("tool_used") != "web_search"):
-
-            fallback_tool = registry.get("web_search")
-            if fallback_tool:
-                fallback = fallback_tool.run(
-                    query=query,
-                    context=scratchpad.context_for_prompt(),
-                )
-                fallback_grade = llm.grade(
-                    RELEVANCE_GRADER_PROMPT.format(
-                        query=query,
-                        content=fallback.content[:800]
-                    )
-                )
-                fallback.metadata["grade"] = fallback_grade
-                fallback.metadata["tool_used"] = "web_search"
-                fallback.metadata["selfrag_retry"] = True
-
-                if fallback_grade >= grade:
-                    fallback.confidence = max(fallback.confidence, 0.6)
-                    return fallback
-
+        """
+        
         tool_result.confidence = max(tool_result.confidence, grade, 0.5)
+        tool_result.metadata["selfrag_status"] = "graded"
         return tool_result
+
 
     def synthesize(self, query, scratchpad, llm) -> str:
 
-        all_obs = scratchpad.all_observations()
+        all_obs = scratchpad.all_observations(max_chars=6000, per_step_chars=2000)
 
         if not all_obs.strip() or len(all_obs) < 80:
             return (
@@ -160,7 +162,7 @@ class SelfRAGPattern(BasePattern):
         reflect_score = llm.grade(
             SELF_REFLECT_PROMPT.format(
                 query=query,
-                observations=all_obs[:1500],
+                observations=scratchpad.all_observations(max_chars=1500, per_step_chars=750),
             )
         )
 
@@ -186,6 +188,7 @@ class SelfRAGPattern(BasePattern):
                 f"replace it with your own calculation.\n"
                 f"Include this exact line as the FIRST line of your answer, before anything else: "
                 f"'Self-reflection score: {reflect_score:.0%}'\n\n"
+                f"{calc_rule}\n"
             )
             
         prompt = (
@@ -200,9 +203,6 @@ class SelfRAGPattern(BasePattern):
             f"plausible for the source. If the FINDINGS don't contain a specific "
             f"value the question asks for, say so explicitly rather than supplying "
             f"yourself.\n\n"
-            f"Include this exact line as the final line of your answer: "
-            f"Self-reflection score: {reflect_score:.0%}\n\n"
-            f"{calc_rule}\n"
             f"Using these research findings, write a complete answer to:\n"
             f"'{query}'\n\n"
             f"FINDINGS:\n{context}\n"
@@ -229,6 +229,9 @@ class SelfRAGPattern(BasePattern):
             f"FORMAT RULES (read carefully — these matter as much as the content):\n"
             f"- Write clear, natural prose in 2-4 short paragraphs. Roughly 150-300 words "
             f"total unless the question genuinely requires more detail.\n"
+            f"- If the question asks for verbatim quotes, exact citations, or a specific "
+            f"list, put THOSE first in your answer, before general explanation — that way "
+            f"if space runs short, the explicitly-requested content is never the part cut off.\n"
             f"- IMPORTANT: being concise means cutting narration, repetition, and preamble "
             f"— it does NOT mean cutting specific facts. ALWAYS include exact dates, "
             f"numbers, names, and figures from the FINDINGS when they're part of the answer.\n"
@@ -245,9 +248,56 @@ class SelfRAGPattern(BasePattern):
             f"If it doesn't, remove it and say that detail wasn't found instead.\n\n"
             f"Wrap the final answer in <final_answer>...</final_answer>."
         )
-        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1200)
+        try:
+            raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536)
+        except RuntimeError as e:
+            err_str = str(e).lower()
+            if "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str:
+                print("      ⚠️ Model attempted a native tool call during synthesis — "
+                      "retrying with a firmer no-tool-calls instruction.")
+                firmer_prompt = prompt + (
+                    "\n\nIMPORTANT: Do NOT call any tool, function, or browser action of "
+                    "any kind — none are available to you right now. You already have "
+                    "everything you need in the FINDINGS above; use only that. Write your "
+                    "answer as plain prose text, wrapped in <final_answer>...</final_answer>, "
+                    "and nothing else."
+                )
+                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=1536, purpose="synthesize")
+            else:
+                raise
+
+
         parsed = ResponseParser.parse(raw)
         final_text = parsed.final_answer or raw
+
+        def _looks_like_tool_call(text: str) -> bool:
+            t = text.strip()
+            return t.startswith("{") and ('"action"' in t or '"tool"' in t or '"parameters"' in t)
+
+
+        if _looks_like_tool_call(final_text):
+            print("      ⚠️ Synthesis returned a raw tool-call-shaped JSON instead of prose — retrying with a firmer instruction.")
+            retry_prompt = prompt + (
+                "\n\nIMPORTANT: Do NOT call any tool or emit JSON of any kind. You "
+                "already have everything you need in FINDINGS above — use it. Write "
+                "your answer as plain prose text only, wrapped in "
+                "<final_answer>...</final_answer>, and nothing else."
+            )
+            try:
+                raw_retry = llm.chat(system=self.system_prompt, user=retry_prompt, max_tokens=1536)
+                parsed_retry = ResponseParser.parse(raw_retry)
+                retry_text = (parsed_retry.final_answer or raw_retry).strip()
+                final_text = retry_text if not _looks_like_tool_call(retry_text) else (
+                    "The research gathered relevant information, but the model's "
+                    "response could not be converted into a plain-text answer. "
+                    "Please try rephrasing the question or running it again."
+                )
+            except Exception:
+                final_text = (
+                    "The research gathered relevant information, but the model's "
+                    "response could not be converted into a plain-text answer. "
+                    "Please try rephrasing the question or running it again."
+                )
 
         final_text = re.sub(
             r'Self-reflection score:\s*\d+%',
@@ -281,35 +331,10 @@ class SelfRAGPattern(BasePattern):
             except json.JSONDecodeError:
                 print(f"      ⚠️ Failed to parse action JSON. Raw action text: {parsed.action!r}")
                 
-                #action_data = {}
+              
 
         if not action_data:
-            # Don't blindly repeat document_reader if it already produced a
-            # real, usable result — that just re-reads the same file for no
-            # new information. Check whether ANY prior step already returned
-            # substantial, non-empty, non-"not found" content before deciding
-            # to retry vs. finish with what's already gathered.
-            has_usable_prior = False
-            if scratchpad is not None:
-                no_info_markers = (
-                    "does not contain", "not provided in", "cannot be found",
-                    "no information", "not found in", "no relevant information",
-                )
-                for s in scratchpad.steps:
-                    obs = (s.observation or "").strip()
-                    if len(obs) > 100 and not any(m in obs.lower() for m in no_info_markers):
-                        has_usable_prior = True
-                        break
-                    
-            if has_usable_prior:
-                print("      ⚠️ No action parsed, but usable data was already "
-                      "gathered — finishing instead of repeating a tool call.")
-                return AgentDecision(
-                    thought=thought + " (action parsing failed — sufficient data already gathered)",
-                    tool_name="synthesizer",
-                    tool_input="",
-                    is_final=True,
-                )
+            return BasePattern._fallback_decision_on_parse_failure(thought, scratchpad)
                     
             # Parsing genuinely failed — don't guess a tool. Retry document_reader
             # with the raw query rather than defaulting to web_search, since a
