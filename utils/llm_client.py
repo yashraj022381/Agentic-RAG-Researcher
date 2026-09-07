@@ -33,7 +33,7 @@ _RETRYABLE_ERRORS = (RateLimitError, APIConnectionError)
 
 class LLMClient:
 
-    def __init__(self, api_key: str = None, model: str = "openai/gpt-oss-20b", max_tokens: int = 2048):#"groq/compound-mini", max_tokens: int = 2048):#"openai/gpt-oss-120b", max_tokens: int = 2048):
+    def __init__(self, api_key: str = None, model: str = "openai/gpt-oss-120b", max_tokens: int = 2048):#"groq/compound-mini", max_tokens: int = 2048):#"openai/gpt-oss-120b", max_tokens: int = 2048):
 
         if api_key is None:
             api_key = os.getenv("GROQ_API_KEY")
