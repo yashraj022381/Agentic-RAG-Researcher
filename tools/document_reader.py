@@ -7,7 +7,7 @@ import concurrent.futures
 from pathlib import Path
 from typing import Optional, Tuple
 from .base import BaseTool, ToolResult
-from pdf2image import convert_from_path
+#from pdf2image import convert_from_path
 #from pypdf import PdfReader
 from utils.paths import DOCS_DIR
 from utils.document_excerpt import extract_relevant_excerpt
