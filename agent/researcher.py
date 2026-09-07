@@ -13,7 +13,7 @@ from utils.cost_tracker import log_research_call
 from utils.paths import DOCS_DIR
 from utils.query_analysis import is_complex_query
 from utils.query_planner import plan_query
-from utils.taxonomy_classifier import classify_taxonomy, _needs_multi_row_computation
+from utils.taxonomy_classifier import classify_taxonomy, _needs_multi_row_computation, _detect_needs_data
 from tools.registry import ToolRegistry
 from tools.document_reader import DocumentReaderTool
 from patterns.selector import PatternSelector
@@ -60,8 +60,6 @@ class AgenticRAGResearcher:
             if not schema:
                 return None, False
 
-
-
             #plan = plan_operation(query, schema, self.llm)
             csv_plan = plan_operation(query, schema, self.llm)   # ← renamed, no more collision
             pattern_used = (plan.get("pattern") if plan else None) or "react"       
@@ -74,7 +72,8 @@ class AgenticRAGResearcher:
                         final_answer=computed,
                         confidence=0.95,
                         sources=[f"Document: {path.name}"],
-                        pattern_used="document_reader",
+                        pattern_used=pattern_used,
+                        tool_used="csv_analyzer",
                         hops=1,
                     )
                     return result, True
@@ -104,12 +103,20 @@ class AgenticRAGResearcher:
                 return None, False
 
             answer = response.split("ANSWER:")[-1].strip() if "ANSWER:" in response else response
+
+            query_words = set(re.findall(r'\w+', query.lower()))
+            column_words = set()
+            for col in schema['columns']:
+                column_words |= {w for w in re.findall(r'\w+', col.lower().replace('_', ' ')) if len(w) > 3}
+            overlap_ratio = len(query_words & column_words) / max(len(column_words), 1)
+
             result = ResearchResult(
                 query=query,
                 final_answer=answer,
-                confidence=0.6,  # lower than the computed path — this is a qualitative answer, not verified
+                confidence=0.40 + (0.25 * min(overlap_ratio, 1.0)),  # lower than the computed path — this is a qualitative answer, not verified
                 sources=[f"Document: {path.name}"],
-                pattern_used="document_reader",
+                pattern_used=pattern_used,
+                tool_used="csv_analyzer",
                 hops=1,
             )
             return result, True
@@ -256,26 +263,39 @@ class AgenticRAGResearcher:
         #plan.setdefault("needs_document", False)
         #plan.setdefault("needs_web", False)
 
-        if is_data_question:
+        if is_data_question and _detect_needs_data:
             print("   → Detected data/analysis question. Prioritizing CSV files only.")
             
         
             csv_files = [f for f in available_files if f.suffix.lower() == ".csv"]
-            for file_path in csv_files:
+
+            # If the query names a specific file, try that one first.
+            named = [f for f in csv_files if f.name.lower() in query_lower]
+            ordered = named + [f for f in csv_files if f not in named]
+
+            best_result, best_found, best_conf = None, False, -1.0
+            for file_path in ordered:
                 checked_names.append(file_path.name)
                 print(f"   Checking CSV: {file_path.name}")
 
-           
-
                 try:
                     result, found = self._answer_from_csv(query, file_path, plan=plan)
-                    if found:
-                        print(f"      → RELEVANT CSV found!")
-                        return result, True, checked_names
+                    if found and result and result.confidence > best_conf:
+                        best_result, best_found, best_conf = result, True, result.confidence
+
+                        if result.confidence >= 0.9:
+                            break
+                        
+                        #print(f"      → RELEVANT CSV found!")
+                        #return result, True, checked_names
+                    
                 except Exception as e:
                     print(f"      → CSV error: {e}")
 
-       
+            if best_found:
+                print(f"      → RELEVANT CSV found ({best_result.sources[0]}, confidence={best_conf})")
+                return best_result, True, checked_names
+
             print("   → No relevant CSV found.")
             return None, False, checked_names
 
@@ -343,6 +363,8 @@ class AgenticRAGResearcher:
 
     def research(self, query: str, on_hop=None) -> ResearchResult:
 
+        print("      [DEBUG] researcher.py version: v27-schema-risk-crag")
+
         verification_words = [
             "verify", "confirm", "assuming", "premise",
             "strictly verify", "numerically verify", "not estimated", "not approximate",
@@ -351,6 +373,11 @@ class AgenticRAGResearcher:
         q_lower = query.lower()
         keyword_verification_signal = any(w in q_lower for w in verification_words)
 
+        cross_reference_signal = any(w in q_lower for w in [
+            "cross-reference", "cross reference", "compare", "versus", " vs ",
+            "modern", "current", "latest", "state of the art", "state-of-the-art",
+            "historical accounts", "2025", "2026", "recent",
+        ])
         
         query = query.strip()
         if not query:
@@ -376,11 +403,12 @@ class AgenticRAGResearcher:
             plan = {
                 "needs_document": taxonomy_match["needs_document"],
                 "needs_data": taxonomy_match["needs_data"],
-                "needs_web": taxonomy_match["needs_web"],
-                "needs_both": taxonomy_match["needs_document"] and taxonomy_match["needs_web"],
+                "needs_web": taxonomy_match["needs_web"] or cross_reference_signal,
+                "needs_both": (taxonomy_match["needs_document"] or taxonomy_match["needs_data"])
+                              and (taxonomy_match["needs_web"] or cross_reference_signal),
                 "needs_verification": taxonomy_match["pattern"] in ("crag", "selfrag"),
                 "pattern": taxonomy_match["pattern"],
-                "estimated_hops": 2 if (taxonomy_match["needs_web"] or taxonomy_match["needs_data"] and taxonomy_match["needs_web"]) else 1,
+                "estimated_hops": 2 if (taxonomy_match["needs_web"] or cross_reference_signal or taxonomy_match["needs_data"] and taxonomy_match["needs_web"]) else 1,
                 "needs_computation": taxonomy_match.get("needs_computation", False),
                 "needs_multi_row_computation": _needs_multi_row_computation(q_lower)
             }
@@ -388,10 +416,11 @@ class AgenticRAGResearcher:
         else:
             doc_names = [f.name for f in Path(DOCS_DIR).rglob("*") if f.is_file() and f.suffix.lower() in {".pdf",".docx",".txt",".md",".csv"}]
             plan = plan_query(query, self.llm, doc_names) if not forced_pattern else None
+            print(f"      🎯 Taxonomy deferred to LLM planner → plan={plan}")
         #skip_precheck = bool(forced_pattern) or (plan and plan.get("needs_both"))
         skip_precheck = (
             bool(forced_pattern)
-            or (plan and (plan.get("needs_both") or plan.get("pattern") in ("crag", "selfrag")))
+            or (plan and (plan.get("needs_both") or plan.get("pattern") in ("crag", "selfrag") or plan.get("needs_computation")))
             or keyword_verification_signal
         )
         #skip_precheck = bool(forced_pattern) or (plan and (plan.get("needs_both") or plan.get("needs_verification")))
