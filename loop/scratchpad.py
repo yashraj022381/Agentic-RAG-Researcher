@@ -1,5 +1,7 @@
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
+from utils.document_excerpt import extract_relevant_excerpt
 
 @dataclass
 class Step:
@@ -12,6 +14,8 @@ class Step:
     pattern: str = ""
     grade: float = 0.0
     corrected: bool = False
+    needs_correction: bool = False
+    needs_calculation: bool = False
 
 @dataclass
 class Scratchpad:
@@ -38,23 +42,52 @@ class Scratchpad:
         total_weight = 0.0
         
         for i, step in enumerate(valid_steps, start = 1):
-            #if hasattr(step, 'confidence') and step.confidence is not None:
             weight = i
             weighted_sum += float(step.confidence) * weight
             total_weight += weight
-            #total += float(step.confidence)
-            #count += 1
+           
         return round(weighted_sum / total_weight, 2) if total_weight > 0 else 0.75
 
-    def all_observations(self, max_chars: int = 6000) -> str:
-        combined = "\n".join([step.observation for step in self.steps if step.observation])
+    def all_observations(self, max_chars: int = 8000, per_step_chars: int = 3000) -> str:
+        print("      [DEBUG] scratchpad.py all_observations version: v50-page-anchor")
+        page_match = re.search(r'\bpage\s*(\d+)\b', self.query, re.IGNORECASE)
+
+
+        parts = []
+        for step in self.steps:
+            obs = step.observation or ""
+            if not obs:
+                continue
+            step_cap = 4500 if step.tool_used == "document_reader" else per_step_chars
+
+            if len(obs) > step_cap:
+                if page_match and step.tool_used == "document_reader":
+                    page_num = page_match.group(1)
+                    page_pattern = re.compile(rf'\[Page\s*{page_num}\b', re.IGNORECASE)
+                    pos_match = page_pattern.search(obs)
+                    if pos_match:
+                        start = max(0, pos_match.start() - 200)
+                        end = min(len(obs), pos_match.start() + step_cap)
+                        obs = obs[start:end]
+                    else:
+                        obs = extract_relevant_excerpt(obs, self.query, window_chars=step_cap, max_total_chars=step_cap)
+                else:
+                    obs = extract_relevant_excerpt(
+                        
+                        obs, self.query, window_chars=per_step_chars, max_total_chars=per_step_chars,
+                    )
+            parts.append(obs)
+        
+        combined = "\n\n[...]\n\n".join(parts)
+        
         if len(combined) > max_chars:
-            combined = combined[:max_chars]
+            #combined = combined[:max_chars]
+            combined = extract_relevant_excerpt(
+                combined, self.query, window_chars=max_chars, max_total_chars=max_chars,
+            )           
         return combined
         
     def context_for_prompt(self, max_chars: int = 4000) -> str:
-        #return "\n\n".join([f"Hop {step.hop_number}: {step.observation}" for step in self.steps])
-        #parts = [f"Hop {step.hop_number}: {step.observation}" for step in self.steps]
         parts = []
         for step in self.steps:
             tool_label = f" (tool: {step.tool_used})" if step.tool_used else ""
