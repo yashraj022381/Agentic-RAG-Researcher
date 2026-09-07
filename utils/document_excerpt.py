@@ -54,8 +54,19 @@ def extract_relevant_excerpt(
         return content[:max_total_chars]
  
     lower_content = content.lower()
+
+    BOILERPLATE_OCCURRENCE_LIMIT = 25
+
+    word_counts = {}
+    for word in query_words:
+        count = lower_content.count(word)
+        if 0 < count <= BOILERPLATE_OCCURRENCE_LIMIT:
+            word_counts[word] = count
+
+    # Rarer words first (better locators); longer words as tiebreaker
+    ranked_words = sorted(word_counts, key=lambda w: (word_counts[w], -len(w)))
+
     hit_positions = []
- 
     for word in query_words:
         found_for_this_word = 0
         start_search = 0
@@ -71,9 +82,37 @@ def extract_relevant_excerpt(
             start_search = idx + 1
  
     if not hit_positions:
-        # No keyword hits anywhere — fall back to the start of the document,
-        # which is no worse than the previous blind-truncation behavior.
-        return content[:max_total_chars]
+        step = max(1, len(content) // 6)
+        sample_positions = list(range(0, len(content), step))[:6]
+        excerpts = []
+        total_len = 0
+        for pos in sample_positions:
+            start = max(0, pos - 200)
+            end = min(len(content), pos + window_chars)
+            excerpt = content[start:end]
+            excerpts.append(excerpt)
+            total_len += len(excerpt)
+            if total_len >= max_total_chars:
+                break
+        return "\n\n[...]\n\n".join(excerpts)[:max_total_chars]
+
+    hit_positions.sort()
+    excerpts = []
+    total_len = 0
+    for pos in hit_positions:
+        start = max(0, pos - window_chars // 3)
+        end = min(len(content), pos + (window_chars * 2) // 3)
+        excerpt = content[start:end]
+        excerpts.append(excerpt)
+        total_len += len(excerpt)
+        if total_len >= max_total_chars:
+            break
+
+    intro = content[:800]
+    combined = intro + "\n\n[...]\n\n" + "\n\n[...]\n\n".join(excerpts)
+    # No keyword hits anywhere — fall back to the start of the document,
+    # which is no worse than the previous blind-truncation behavior.
+    return content[:max_total_chars]
  
     hit_positions.sort()
  
