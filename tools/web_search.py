@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+from ddgs import DDGS
 from typing import Optional
 from .base import BaseTool, ToolResult
 
@@ -221,8 +222,6 @@ class WebSearchTool(BaseTool):
     def _duckduckgo_search(self, query: str) -> ToolResult:
 
         try:
-            from ddgs import DDGS
-
             with DDGS() as ddgs:
                 results = list(ddgs.text(query, max_results = 3))
 
