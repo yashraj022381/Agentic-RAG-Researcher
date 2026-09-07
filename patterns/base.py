@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
@@ -8,6 +9,15 @@ if TYPE_CHECKING:
     from tools.base import ToolResult
     from tools.registry import ToolRegistry
     from utils.llm_client import LLMClient
+
+
+WEB_FALLBACK_CONFIDENCE_THRESHOLD = 0.50
+MAX_WEB_FALLBACK_RETRIES = 2
+
+_COMPUTATION_TRIGGER_WORDS = [
+    "calculate", "compute", "variance", "market share", "per capita",
+    "derive", "derivation", "percentage", "difference", "ratio",
+]
 
 @dataclass
 class AgentDecision:
@@ -65,6 +75,153 @@ class BasePattern(ABC):
         llm: "LLMClient",
     ) -> str:
         """Produce the final answer string."""
+
+    @staticmethod
+    def _has_usable_prior_step(scratchpad, min_score: float = 0.5) -> bool:
+        """A prior step only counts as 'usable' if it's substantial AND
+        was actually graded well — length alone isn't evidence of quality,
+        just evidence the tool didn't return an empty string."""
+
+        _NO_INFO_MARKERS = (
+            "does not contain", "not provided in", "cannot be found",
+            "no information", "not found in", "no relevant information",
+        )
+        if scratchpad is None:
+            return False
+        for s in scratchpad.steps:
+            obs = (s.observation or "").strip()
+            if len(obs) <= 100:
+                continue
+            if any(m in obs.lower() for m in _NO_INFO_MARKERS):
+                continue
+            score = getattr(s, "confidence", None)
+            if score is None:
+                score = getattr(s, "grade", None)
+            if score is not None and score < min_score:
+                continue  # long, on-topic-looking text, but graded low — not usable
+            return True
+        return False
+
+
+    @staticmethod
+    def _fallback_decision_on_parse_failure(thought: str, scratchpad) -> AgentDecision:
+        """Shared by every pattern's _parse_decision when the model's raw
+        output couldn't be parsed into a tool call."""
+        if BasePattern._has_usable_prior_step(scratchpad):
+            print("      ⚠️ No action parsed, but a prior step was both "
+                  "substantial and well-graded — finishing instead of repeating a tool call.")
+            return AgentDecision(
+                thought=thought + " (action parsing failed — sufficient graded data already gathered)",
+                tool_name="synthesizer",
+                tool_input="",
+                is_final=True,
+            )
+
+        needs_web = any(getattr(s, "needs_correction", False) for s in (scratchpad.steps if scratchpad else []))
+        next_tool = "web_search" if needs_web else "document_reader"
+        print(f"      ⚠️ No action parsed from model output — retrying with '{next_tool}'.")
+        return AgentDecision(
+            thought=thought + f" (action parsing failed — retrying with {next_tool})",
+            tool_name=next_tool,
+            tool_input="",
+            is_final=False,
+        )
+
+    @staticmethod
+    def _check_verified_computed_result(tool_result, status_key: str) -> bool:
+        """A VERIFIED COMPUTED RESULT (deterministic pandas output from
+        csv_analyzer) is ground truth — never needs LLM grading or web
+        correction. Shared identically by CRAG and Self-RAG."""
+        if "VERIFIED COMPUTED RESULT" in (tool_result.content or ""):
+            tool_result.metadata[status_key] = "verified_computed"
+            tool_result.metadata["grade"] = 1.0
+            tool_result.confidence = max(tool_result.confidence, 0.95)
+            return True
+        return False
+
+    @staticmethod
+    def _apply_prior_correction_wrap(tool_result, scratchpad, status_key: str, label: str) -> bool:
+        """If the PREVIOUS step was flagged needs_correction, THIS step's
+        result is the correction attempt — wrap it with the prior low-
+        relevance content for context, clear the flag. Shared by both
+        patterns; only the wrapper label ('Web correction' vs 'Correction
+        attempt') differs."""
+        if scratchpad.steps and getattr(scratchpad.steps[-1], 'needs_correction', False):
+            prior = scratchpad.steps[-1]
+            prior_snippet = (prior.observation or "")[:500]
+            tool_result.content = (
+                f"[{label} — NEW information from this hop]\n"
+                f"{tool_result.content}\n\n"
+                f"[Original low-relevance retrieval — grade {prior.grade:.0%}, for reference]\n"
+                f"{prior_snippet}"
+            )
+            tool_result.metadata[status_key] = "correction_applied"
+            tool_result.metadata["corrected"] = True
+            tool_result.metadata["needs_correction"] = False
+            tool_result.confidence = max(tool_result.confidence, 0.6)
+            return True
+        return False
+    
+
+    @staticmethod
+    def _is_trivially_empty(content: str) -> bool:
+        """Deterministic, LLM-free check — content this short or containing
+        this exact phrase is almost certainly a non-answer, no need to spend
+        an LLM grading call finding that out. Previously Self-RAG-only; now
+        shared so CRAG gets the same fast, reliable short-circuit instead of
+        always paying for an LLM score on empty content."""
+        c = (content or "").strip()
+        return len(c) < 100 or "no highly relevant" in c.lower()
+    
+    
+    @staticmethod
+    def _maybe_flag_web_fallback(
+        tool_result, scratchpad, score: float, status_key: str,
+        max_retries: int = MAX_WEB_FALLBACK_RETRIES,
+        threshold: float = WEB_FALLBACK_CONFIDENCE_THRESHOLD,
+    ) -> bool:
+        """Single shared confidence gate: whatever pattern is running, however
+        it computed `score`, this decides — and mechanically triggers — a
+        web_search fallback the SAME way every time. This is what makes
+        web_search a normal, always-available tool across react/crag/selfrag
+        rather than something wired ad hoc per pattern."""
+        already_web = tool_result.metadata.get("tool_used") == "web_search"
+        corrections_made = sum(1 for s in scratchpad.steps if getattr(s, "corrected", False))
+        if score < threshold and not already_web and corrections_made < max_retries:
+            tool_result.metadata["needs_correction"] = True
+            tool_result.metadata["corrected"] = True
+            tool_result.metadata[status_key] = "needs_web_fallback"
+            tool_result.confidence = score
+            return True
+        return False
+
+    @staticmethod
+    def _maybe_flag_calculation_needed(tool_result, scratchpad, query, status_key: str) -> bool:
+        """Shared reactive gate, mirroring _maybe_flag_web_fallback: if the
+        question needs a numeric computation and this hop's content contains
+        raw figures relevant to it, but no computation has happened yet, flag
+        needs_calculation so the engine forces a calculator hop next. This
+        lets ANY pattern (react/crag/selfrag) trigger a real calculation as
+        soon as the numbers it needs actually appear, instead of relying only
+        on the static, upfront plan.needs_computation classifier."""
+        q_lower = query.lower()
+        if not any(w in q_lower for w in _COMPUTATION_TRIGGER_WORDS):
+            return False
+
+        already_computed = any(
+            "VERIFIED COMPUTED RESULT" in (s.observation or "") or s.tool_used == "calculator"
+            for s in scratchpad.steps
+        )
+        if already_computed:
+            return False
+
+        has_raw_numbers = bool(re.search(r'\$?\d[\d,]*\.?\d*\s*(million|billion|%)?', tool_result.content or ""))
+        if has_raw_numbers:
+            tool_result.metadata["needs_calculation"] = True
+            tool_result.metadata[status_key] = f"{tool_result.metadata.get(status_key, '')}+needs_calculation"
+            return True
+        return False
+
 
     def _local_documents_note(self, scratchpad: "Scratchpad", plan: Optional[dict] = None) -> str:
         try:
