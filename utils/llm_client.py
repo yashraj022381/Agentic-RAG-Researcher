@@ -75,11 +75,12 @@ class LLMClient:
         for attempt in range(retries):
             try:
                 start = time.time()
+                temp = 0.7 if attempt < retries - 1 else 0.2
                 response = self.client.chat.completions.create(
                     model=self.model,
                     max_tokens=tokens_for_this_call,
                     messages=messages,
-                    temperature=0.7,
+                    temperature=temp,
                 )
                 elapsed = time.time() - start
 
@@ -89,6 +90,7 @@ class LLMClient:
                     # treat it the same as a transient failure and retry rather than
                     # silently propagating an empty string downstream.
                     last_error = RuntimeError("Empty response content from LLM")
+                    tokens_for_this_call = min(int(tokens_for_this_call * 1.5), 4096)
                     wait = min(2 ** attempt, 10)
                     time.sleep(wait)
                     continue
