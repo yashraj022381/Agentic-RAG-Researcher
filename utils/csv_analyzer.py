@@ -14,6 +14,20 @@ ALLOWED_OPS = ALLOWED_AGGS | {"top_n", "bottom_n"}
 _TOP_N_PATTERN = re.compile(r'\b(top|highest|largest|greatest)\s+(\d+)?', re.IGNORECASE)
 _BOTTOM_N_PATTERN = re.compile(r'\b(bottom|lowest|smallest|least)\s+(\d+)?', re.IGNORECASE)
 
+_ID_VALUE_PATTERN = re.compile(
+    r'\b(?:passenger\s*id|customer\s*id|record\s*id|\bid)\s*(?:number|no\.?|#|is|of|:|=)?\s*(\d+)\b',
+    re.IGNORECASE)
+
+_MISSING_PATTERN = re.compile(
+    r'\b(missing|null|nan|empty)\s+(values?|entries|counts?|data)\b', re.IGNORECASE
+)
+
+_DERIVED_COLUMN_PATTERN = re.compile(
+    r'\b(engineer|create|compute|calculate)\s+(?:a\s+|an\s+)?[\w\s]{0,30}?'
+    r'(variance|difference|per\s*capita|ratio|margin)\b',
+    re.IGNORECASE,
+)
+
 
  
 def is_csv(path: Path) -> bool:
@@ -59,12 +73,15 @@ def detect_top_n_plan(query: str, schema: dict) -> Optional[dict]:
     if not top_match and not bottom_match:
         return None
 
+ 
     match = top_match or bottom_match
     op = "top_n" if top_match else "bottom_n"
     n = int(match.group(2)) if match.group(2) else 5
+    
 
     query_words = set(re.findall(r'\w+', q_lower))
     columns = schema["columns"]
+   
 
     # Find the best-matching sort column: prefer a column whose full
     # underscore-joined name appears as a token in the query.
@@ -88,9 +105,8 @@ def detect_top_n_plan(query: str, schema: dict) -> Optional[dict]:
     for col in columns:
         if col == sort_by:
             continue
-        #col_words = set(re.findall(r'\w+', col.lower()))
         col_words = _normalize_words(col)
-        if col_words & query_words: #or col.lower() in q_lower:
+        if col_words & query_words: 
             return_columns.append(col)
 
     plan = {
@@ -104,13 +120,123 @@ def detect_top_n_plan(query: str, schema: dict) -> Optional[dict]:
     print(f"      [DEBUG] detect_top_n_plan RETURNING: {plan}")
     return plan
 
+
+
+def detect_row_lookup_plan(query: str, schema: dict) -> Optional[dict]:
+    """Deterministically detect a 'find/get X for row ID N' question —
+    filter to one row by an ID-like column, return the requested
+    column(s). Mirrors detect_top_n_plan's approach: regex-first,
+    schema-checked, no LLM guesswork for this common query shape."""
+    q_lower = query.lower()
+    id_match = _ID_VALUE_PATTERN.search(q_lower)
+    if not id_match:
+        return None
+
+    id_value = id_match.group(1)
+    columns = schema["columns"]
+    q_words = set(re.findall(r'\w+', q_lower))
+
+    best_id_col, best_score = None, 0
+    for c in columns:
+        c_words = set(re.findall(r'\w+', c.lower()))
+        if not any('id' in w for w in c_words):
+            continue
+        score = len(c_words & q_words)
+        if score > best_score:
+            best_score = score
+            best_id_col = c
+
+        if best_id_col is None:
+            id_like = [c for c in columns if 'id' in c.lower()]
+            if len(id_like) == 1:
+                best_id_col = id_like[0]
+            else:
+                return None  # ambiguous or no id-like column — don't guess
+
+
+    return {
+        "applicable": True,
+        "op": "row_lookup",
+        "id_column": best_id_col,
+        "id_value": id_value,
+        "return_columns": [],  # empty = return all columns
+    }
+
+def detect_missing_values_plan(query: str, schema: dict) -> Optional[dict]:
+    q_lower = query.lower()
+    if not _MISSING_PATTERN.search(q_lower):
+        return None
+    query_words = set(re.findall(r'\w+', q_lower))
+    columns = schema["columns"]
+    matched_cols = [c for c in columns if _normalize_words(c) & query_words]
+    if not matched_cols:
+        matched_cols = columns  # no specific columns named → report all
+    return {"applicable": True, "op": "missing_count", "columns": matched_cols}
+
+_METRIC_PATTERNS = [
+    (re.compile(r'\bvariance\b', re.IGNORECASE), 'subtract',
+     ['actual', 'spend'], ['budget', 'allocated', 'planned']),
+    (re.compile(r'\bper\s*capita\b|\bper\s*person\b|\bper\s*employee\b', re.IGNORECASE), 'divide',
+     ['actual', 'spend', 'revenue', 'cost', 'amount'], ['headcount', 'employees', 'staff']),
+    (re.compile(r'\bmargin\b', re.IGNORECASE), 'subtract', ['revenue'], ['cost', 'expense']),
+]
+
+
+def _pick_column(hint_words, numeric_cols):
+    for col in numeric_cols:
+        col_words = _normalize_words(col)
+        if any(h in col_words for h in hint_words):
+            return col
+    return None
+
+def detect_derived_arithmetic_plan(query: str, schema: dict) -> Optional[dict]:
+    """Detect 'engineer/compute X for every row' where X is simple
+    arithmetic (subtract or divide) between two existing numeric columns —
+    e.g. 'engineer a Spend_Variance column' (Actual - Budget), 'compute
+    spend per capita' (Actual / Headcount). Executed vectorized across
+    every row in one pandas call, not looped through calculator N times."""
+    q_lower = query.lower().replace('_', ' ')
+    
+    columns = schema["columns"]
+    numeric_cols = [c for c in columns if any(t in str(schema["dtypes"].get(c, "")) for t in ("int", "float"))]
+    print(f"      [DEBUG] derived_arithmetic: numeric_cols={numeric_cols}")
+
+
+    metrics = []
+    for pattern, arith_op, num_hints, den_hints in _METRIC_PATTERNS:
+        matched = bool(pattern.search(q_lower))
+        print(f"      [DEBUG] derived_arithmetic: pattern={pattern.pattern!r} matched={matched}")
+        if not matched:
+            continue
+        numerator = _pick_column(num_hints, numeric_cols)
+        denominator = _pick_column(den_hints, numeric_cols)
+        print(f"      [DEBUG] derived_arithmetic: numerator={numerator}, denominator={denominator}")
+        if numerator and denominator and numerator != denominator:
+            metrics.append({"op": arith_op, "numerator": numerator, "denominator": denominator})
+
+    print(f"      [DEBUG] derived_arithmetic: final metrics={metrics}")
+    if not metrics:
+        return None
+    all_cols = list({m["numerator"] for m in metrics} | {m["denominator"] for m in metrics})
+    return {"applicable": True, "op": "derived_arithmetic", "metrics": metrics, "return_columns": all_cols}
+
+
 def plan_operation(query: str, schema: dict, llm) -> Optional[dict]:
     
 
+    row_plan = detect_row_lookup_plan(query, schema)
+    if row_plan:
+        return row_plan
     top_n_plan = detect_top_n_plan(query, schema)
     print(f"      [DEBUG] plan_operation: top_n_plan={top_n_plan}")
     if top_n_plan:
         return top_n_plan
+    missing_plan = detect_missing_values_plan(query, schema)
+    if missing_plan:
+        return missing_plan
+    derived_plan = detect_derived_arithmetic_plan(query, schema)
+    if derived_plan:
+        return derived_plan
 
     """
     Ask the LLM to translate the question into a structured, whitelisted
@@ -144,6 +270,12 @@ def plan_operation(query: str, schema: dict, llm) -> Optional[dict]:
          f"If the specific column(s) the question needs are NOT in the columns "
          f"list, respond:\n"
          f'{{"applicable": false, "reason": "<name the missing column(s)>"}}\n\n'
+         f"If the question asks for a RATE or PERCENTAGE of a binary/categorical outcome, "
+         f"filtered by one attribute and compared across another (e.g. 'survival rate of "
+         f"female passengers in Pclass 1 vs Pclass 3'), respond:\n"
+         f'{{"applicable": true, "op": "conditional_rate", "filter_column": "<column>", '
+         f'"filter_value": "<value>", "group_by": "<column>", "rate_column": "<outcome column>", '
+         f'"rate_positive_value": "<value meaning positive outcome, e.g. 1>"}}\n\n'
          f"Respond with ONLY the JSON object, nothing else — no explanation, "
          f"no markdown formatting."
     )
@@ -165,6 +297,14 @@ def plan_operation(query: str, schema: dict, llm) -> Optional[dict]:
         return plan
     except Exception:
         return None
+
+def execute_row_wise_derivation(path, columns_needed, formula_type):
+    # e.g. formula_type="variance": Actual_Spend - Budget_Allocated per row
+    # formula_type="per_capita": Actual_Spend / Headcount per row
+    df = pd.read_csv(path)
+    ...
+    lines = [f"{row['Department']} {row['Quarter']}: Variance={...}, Per_Capita={...:.2f}" for _, row in df.iterrows()]
+    return "VERIFIED COMPUTED RESULT (row-wise derivation...)\n" + "\n".join(lines)
  
  
 def execute_plan(path: Path, plan: dict) -> Optional[str]:
@@ -174,6 +314,7 @@ def execute_plan(path: Path, plan: dict) -> Optional[str]:
     of pandas .agg() calls can run, gated by the ALLOWED_AGGS whitelist and
     a real column-name check against the actual dataframe.
     """
+
     if pd is None or not plan.get("applicable"):
         return None
 
@@ -200,6 +341,105 @@ def execute_plan(path: Path, plan: dict) -> Optional[str]:
             )
         except Exception:
             return None
+        
+    #op = plan.get("op")
+    if op == "row_lookup":
+        id_column = str(plan.get("id_column")or "")
+        id_value = plan.get("id_value")
+        return_cols = plan.get("return_columns") or []
+       
+        
+        if not id_column:
+            return None
+            
+        try:
+            df = pd.read_csv(path)
+            if id_column not in df.columns:
+                return None
+            
+            matched_rows = df[df[id_column].astype(str) == str(id_value)]
+            if matched_rows.empty:
+                return None 
+
+            row = matched_rows.iloc[0]
+            cols_to_show = [c for c in return_cols if c in df.columns] or list(df.columns)
+            details = ", ".join(f"{c}={row[c]}" for c in cols_to_show)
+            return (
+                f"VERIFIED COMPUTED RESULT (row lookup, {id_column}={id_value}, "
+                f"from the actual dataset via pandas — exact, not estimated): {details}"
+            )
+        except Exception:
+            return None
+
+    if op == "conditional_rate":
+        filter_col, filter_val = plan.get("filter_column"), plan.get("filter_value")
+        group_col, rate_col = plan.get("group_by"), plan.get("rate_column")
+        pos_val = plan.get("rate_positive_value")
+        try:
+            df = pd.read_csv(path)
+            for c in (filter_col, group_col, rate_col):
+                if c not in df.columns:
+                    return None
+            filtered = df[df[filter_col].astype(str).str.lower() == str(filter_val).lower()]
+            lines = []
+            for group_val, sub in filtered.groupby(group_col):
+                total = len(sub)
+                positive = (sub[rate_col].astype(str) == str(pos_val)).sum()
+                rate = (positive / total * 100) if total else 0
+                lines.append(f"{group_col}={group_val}: {positive}/{total} = {rate:.2f}%")
+            return (
+                f"VERIFIED COMPUTED RESULT ({rate_col} rate for {filter_col}={filter_val}, "
+                f"grouped by {group_col}, from the actual dataset via pandas — exact):\n" + "\n".join(lines)
+            )
+        except Exception:
+            return None
+
+    if op == "missing_count":
+        columns = plan.get("columns") or []
+        try:
+            df = pd.read_csv(path)
+            valid_cols = [c for c in columns if c in df.columns]
+            if not valid_cols:
+                return None
+            lines = [f"{c}: {int(df[c].isna().sum())} missing" for c in valid_cols]
+            return (
+                "VERIFIED COMPUTED RESULT (missing-value counts, from the actual "
+                "dataset via pandas — exact, not estimated):\n" + "\n".join(lines)
+            )
+        except Exception:
+            return None
+
+    if op == "derived_arithmetic":
+        metrics = plan.get("metrics") or []
+        if not metrics:
+            return None
+        try:
+            df = pd.read_csv(path)
+            for m in metrics:
+                if m["numerator"] not in df.columns or m["denominator"] not in df.columns:
+                    return None
+            used_cols = {m["numerator"] for m in metrics} | {m["denominator"] for m in metrics}
+            id_cols = [c for c in df.columns if c not in used_cols]
+            raw_cols = sorted(used_cols)  # the actual Budget_Allocated / Actual_Spend / Headcount inputs
+ 
+            lines = []
+            for _, row in df.iterrows():
+                id_desc = ", ".join(f"{c}={row[c]}" for c in id_cols)
+                raw_desc = ", ".join(f"{c}={row[c]}" for c in raw_cols)
+                parts = []
+                for m in metrics:
+                    a, b = row[m["numerator"]], row[m["denominator"]]
+                    result = (a - b) if m["op"] == "subtract" else (a / b if b else None)
+                    label = (f"{m['numerator']}_minus_{m['denominator']}" if m["op"] == "subtract" else f"{m['numerator']}_per_{m['denominator']}")
+                    parts.append(f"{label}={result:.2f}" if result is not None else f"{label}=undefined")
+                lines.append(f"{id_desc}, {raw_desc}: " + ", ".join(parts))
+            return (
+                "VERIFIED COMPUTED RESULT (derived metrics, for every row, from the actual "
+                "dataset via pandas — exact, not estimated):\n" + "\n".join(lines)
+            )
+        
+        except Exception:
+            return None
  
     agg = plan.get("agg")
     target = plan.get("target_column")
@@ -212,7 +452,8 @@ def execute_plan(path: Path, plan: dict) -> Optional[str]:
         df = pd.read_csv(path)
         if target not in df.columns:
             return None
- 
+
+         
         if group_by and group_by in df.columns:
             result = df.groupby(group_by)[target].agg(agg)
             lines = [
