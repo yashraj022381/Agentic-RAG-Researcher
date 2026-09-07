@@ -1,5 +1,6 @@
 import os
 import re
+import requests
 from typing import Optional
 from .base import BaseTool, ToolResult
 
@@ -181,7 +182,6 @@ class WebSearchTool(BaseTool):
             search_query = query + "wikipedia founded date"
 
         try:
-            import requests
             response = requests.post(
                 "https://api.tavily.com/search",
                 json = {
