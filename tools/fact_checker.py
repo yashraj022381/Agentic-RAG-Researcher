@@ -113,32 +113,6 @@ class FactCheckerTool(BaseTool):
             confidence=0.4,
         )
 
-        """
-        q = query.lower()
-        for fact_keys, is_true in KNOWN_FACTS.items():
-            if all(k in q for k in fact_keys):
-                status = "VERIFIED ✓" if is_true else "DISPUTED ✗"
-                return ToolResult(
-                    content = (
-                        f"Fact check result: {status}\n"
-                        f"Claim: '{query}'\n"
-                        f"Assessment: This claim is {'supported' if is_true else 'not supported'} "
-                        f"by multiple reliable sources."
-                    ),
-                    source = "Fact Checker: internal knowledge",
-                    confidence = 0.88 if is_true else 0.82,
-                    metadata = {"verified": is_true},
-                )
-
-        return ToolResult(
-            content = (
-                f"Could not definitively verify: '{query}'. "
-                "Recommend using web_search for more recent or specific verification. "
-            ),
-            source = "Fact Checker: inconclusive",
-            confidence = 0.40,
-        )
-        """
 
             
             
