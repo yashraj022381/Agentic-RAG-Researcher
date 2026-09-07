@@ -10,6 +10,7 @@ from .base import BaseTool, ToolResult
 from pdf2image import convert_from_path
 from pypdf import PdfReader
 from utils.paths import DOCS_DIR
+from utils.document_excerpt import extract_relevant_excerpt
                 
 
 SUPPORTED = {".pdf", ".docx", ".doc", ".txt", ".md", ".csv"}
@@ -33,7 +34,7 @@ MAX_PDF_PAGES = 400
 # is still needed since there's no way to know the actual text yield
 # without reading it, and reading a 150MB file synchronously is not safe
 # to attempt unconditionally.
-MAX_FILE_SIZE_MB = 100
+MAX_FILE_SIZE_MB = 200
 
 _GENERIC_STOPWORDS = {
     "document", "documents", "file", "files", "content", "contents",
@@ -132,9 +133,24 @@ class DocumentReaderTool(BaseTool):
                     confidence=0.2,
                 )
 
-            truncated = content[:MAX_CONTENT_CHARS]
-            if len(content) > MAX_CONTENT_CHARS:
-                truncated += f"\n\n[... {len(content) - MAX_CONTENT_CHARS} more characters truncated ...]"
+            if len(content) > 40000:
+                excerpt_total_budget = 10000
+            elif len(content) > 15000:
+                excerpt_total_budget = 8000
+            else:
+                excerpt_total_budget = MAX_CONTENT_CHARS
+
+            excerpted = extract_relevant_excerpt(
+                content, query, window_chars=1200, max_total_chars=excerpt_total_budget,
+            )
+
+            
+            truncated = excerpted
+            if len(content) > len(excerpted):
+                truncated += (
+                    f"\n\n[... excerpted around query-relevant sections; "
+                    f"{len(content)} total characters in source document ...]"
+                )
             if truncation_note:
                 truncated += f"\n\n[NOTE: {truncation_note}]"
 
@@ -186,11 +202,8 @@ class DocumentReaderTool(BaseTool):
 
         best_file, best_score = None, 0
 
-        #if best_score < 3 and len(files) > 1:
-        #    return None
-
+       
         for f in files:
-            #name_words = set(re.findall(r'\w+', f.stem.lower()))
             name_words = set(re.findall(r'\w+', f.stem.lower().replace('_', ' ').replace('-', ' ')))
             score = len(query_words & name_words) * 3  # filename overlap weighted higher
 
@@ -479,3 +492,5 @@ class DocumentReaderTool(BaseTool):
             for f in self.docs_folder.rglob("*")
             if f.is_file() and f.suffix.lower() in SUPPORTED
         ]
+     
+    
