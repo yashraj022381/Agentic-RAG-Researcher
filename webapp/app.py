@@ -125,7 +125,7 @@ with tab_ask:
                     # Plain text, not markdown — avoids "$...$" being
                     # misread as LaTeX math delimiters and swallowing
                     # numbers between them.
-                    st.text((step.observation or "")[:4000])
+                    st.text((step.observation or "")[:6000])
                 st.markdown("---")
 
         try:
