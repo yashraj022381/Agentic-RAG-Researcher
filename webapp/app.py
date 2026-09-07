@@ -3,7 +3,6 @@ import re
 import time
 import pandas as pd
 from pathlib import Path
-from utils.paths import DOCS_DIR
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -19,6 +18,7 @@ except ImportError:
 from agent.researcher import AgenticRAGResearcher
 from config.settings import Settings
 from utils.cost_tracker import read_all_research_logs, clear_research_logs
+from utils.paths import DOCS_DIR
 
 DOCUMENTS_DIR = PROJECT_ROOT / DOCS_DIR
 DOCUMENTS_DIR.mkdir(exist_ok=True)
