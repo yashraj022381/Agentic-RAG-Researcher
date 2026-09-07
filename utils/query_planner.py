@@ -2,7 +2,12 @@ import json
 import re
 from patterns.selector import PatternSelector
 from utils.query_analysis import is_complex_query
-from utils.taxonomy_classifier import best_guess_pattern, second_ask_words, reformulate_words, _needs_computation
+from utils.taxonomy_classifier import _RECENT_YEAR_PATTERN
+from utils.taxonomy_classifier import (
+    best_guess_pattern, second_ask_words, reformulate_words,
+    _needs_computation, _needs_multi_row_computation,_detect_needs_data,
+    _detect_needs_document, _RECENT_YEAR_PATTERN,
+)
 
 _plan_cache = {}
 
@@ -36,6 +41,13 @@ PATTERN GUIDE (pick exactly one, based on what the question is actually asking y
     retrieval comes up empty or off-topic.
   - Query reformulation: the question is phrased ambiguously and may need retrying
     with different terms
+  - Structured data schema risk: the question asks to filter, group, sort, or
+    list a CSV/tabular dataset BY a specific named field (e.g. "grouped by X",
+    "filter by Y", "list their assigned Z") — there's real risk that field
+    simply doesn't exist under that exact name in the actual data, the tabular
+    equivalent of a document not containing what's asked. Treat this the same
+    as narrow technical extraction: needs correction/fallback if the column
+    turns out to be missing or misnamed.
   - Premise verification: the question ASSUMES something is true and asks you to
     verify that assumption using local data before answering
   Example: "Assuming the dataset shows X, calculate Y" (verify the assumption first)
@@ -111,10 +123,13 @@ Respond with ONLY this JSON, nothing else:
         if match:
             plan = json.loads(match.group(0))
             plan.setdefault("needs_document", False)
+            plan.setdefault("needs_data", False)
             plan.setdefault("needs_web", False)
             plan.setdefault("needs_both", False)
             plan.setdefault("pattern", "react")
             plan.setdefault("estimated_hops", 2)
+            plan.setdefault("needs_computation", _needs_computation(query.lower()))
+            plan.setdefault("needs_multi_row_computation", _needs_multi_row_computation(query.lower()))
             _plan_cache[cache_key] = plan
             plan.setdefault("needs_verification", False)
             return plan
@@ -134,16 +149,22 @@ Respond with ONLY this JSON, nothing else:
         any(w in q_lower for w in second_ask_words)
         or any(w in q_lower for w in reformulate_words)
         or any(p in q_lower for p in explicit_web_phrases)
+        or bool(_RECENT_YEAR_PATTERN.search(q_lower))
     )
-    needs_document_fallback = bool(available_documents)
+    #needs_data_fallback = any(w in q_lower for w in _detect_needs_data)
+    #needs_document_fallback = bool(available_documents)
+    needs_document_fallback = _detect_needs_document(q_lower, _detect_needs_data, available_documents)
     guessed_pattern = best_guess_pattern(query, available_documents)
     
     return {
         "needs_document": needs_document_fallback,
+        "needs_data": _detect_needs_data,
         "needs_web": needs_web_fallback,
         "needs_both": needs_document_fallback and needs_web_fallback,
         "pattern": guessed_pattern,
-        "estimated_hops": 2 if needs_document_fallback and needs_web_fallback else 1,
+        "estimated_hops": 2 if ((needs_document_fallback or needs_web_fallback) and needs_web_fallback) else 1,
         "needs_computation": _needs_computation(q_lower),
+        "needs_multi_row_computation": _needs_multi_row_computation(q_lower),
+
         
     }
