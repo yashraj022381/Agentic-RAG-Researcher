@@ -97,54 +97,6 @@ class SelfRAGPattern(BasePattern):
 
         # react.py, crag.py, selfrag.py — add this line in post_process, e.g.:
         self._maybe_flag_calculation_needed(tool_result, scratchpad, query, "selfrag_status")  # or "crag_status"/"selfrag_status"
-        """
-        if self._is_trivially_empty(tool_result.content):
-            if low_grade_steps < self.max_retries and tool_result.metadata.get("tool_used") != "web_search":
-                tool_result.metadata["grade"] = 0.0
-                tool_result.metadata["needs_correction"] = True
-                tool_result.metadata["corrected"] = True
-                tool_result.metadata["selfrag_status"] = "needs_web_fallback"
-                tool_result.confidence = 0.2
-            return tool_result
-    
-        #return tool_result
-        if "VERIFIED COMPUTED RESULT" in (tool_result.content or ""):
-            tool_result.metadata["selfrag_status"] = "verified_computed"
-            tool_result.metadata["grade"] = 1.0
-            tool_result.confidence = max(tool_result.confidence, 0.95)
-            return tool_result
-        
-        content = tool_result.content.strip()
-        grade_prompt = RELEVANCE_GRADER_PROMPT.format(query=query, content=content[:800])
-        grade = llm.grade(grade_prompt)
-        tool_result.metadata["grade"] = grade
-
-        if (grade < self.relevance_threshold
-        and low_grade_steps < self.max_retries
-        and tool_result.metadata.get("tool_used") != "web_search"):
-            tool_result.metadata["needs_correction"] = True
-            tool_result.metadata["corrected"] = True
-            tool_result.metadata["selfrag_status"] = "needs_web_fallback"
-            tool_result.confidence = grade
-            return tool_result
-
-
-        if (grade < self.relevance_threshold
-            and low_grade_steps < self.max_retries
-            and tool_result.metadata.get("tool_used") != "web_search"):
-            tool_result.metadata["needs_correction"] = True
-            tool_result.metadata["corrected"] = True
-            tool_result.metadata["selfrag_status"] = "needs_web_fallback"
-            tool_result.confidence = grade
-            return tool_result
-
-        grade_prompt = RELEVANCE_GRADER_PROMPT.format(
-            query=query,
-            content=content[:800],
-        )
-        grade = llm.grade(grade_prompt)
-        tool_result.metadata["grade"] = grade
-        """
         
         tool_result.confidence = max(tool_result.confidence, grade, 0.5)
         tool_result.metadata["selfrag_status"] = "graded"
@@ -232,8 +184,10 @@ class SelfRAGPattern(BasePattern):
             f"- If the question asks for verbatim quotes, exact citations, or a specific "
             f"list, put THOSE first in your answer, before general explanation — that way "
             f"if space runs short, the explicitly-requested content is never the part cut off.\n"
+            f"- When reporting results for many rows (departments, quarters, records), use a "
+            f"compact table or bullet list with just the key numbers — do not restate every input value in full sentences for each row. \n"
             f"- IMPORTANT: being concise means cutting narration, repetition, and preamble "
-            f"— it does NOT mean cutting specific facts. ALWAYS include exact dates, "
+            f"it does NOT mean cutting specific facts. ALWAYS include exact dates, "
             f"numbers, names, and figures from the FINDINGS when they're part of the answer.\n"
             f"- Do NOT break your answer into a numbered list of sub-questions, and do NOT "
             f"narrate your reasoning process. Just answer.\n"
@@ -249,7 +203,7 @@ class SelfRAGPattern(BasePattern):
             f"Wrap the final answer in <final_answer>...</final_answer>."
         )
         try:
-            raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536)
+            raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=2560)
         except RuntimeError as e:
             err_str = str(e).lower()
             if "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str:
@@ -262,7 +216,7 @@ class SelfRAGPattern(BasePattern):
                     "answer as plain prose text, wrapped in <final_answer>...</final_answer>, "
                     "and nothing else."
                 )
-                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=1536, purpose="synthesize")
+                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=2560, purpose="synthesize")
             else:
                 raise
 
