@@ -183,6 +183,11 @@ class DocumentReaderTool(BaseTool):
                 confidence=0.3,
             )
 
+    def _configure_ocr_paths():
+      tesseract_path = shutil.which("tesseract")
+      pytesseract.pytesseract.tesseract_cmd = tesseract_path or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+      return None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+
     def _find_best_match(self, query: str, files: list) -> Optional[Path]:
         """
         Fallback matching used only when no explicit file_path is given
@@ -280,15 +285,15 @@ class DocumentReaderTool(BaseTool):
             if len(text.strip()) > 200:
                 return text  # real text layer exists, no OCR needed
 
-            tesseract_path = shutil.which("tesseract")
-            if tesseract_path:
-              pytesseract.pytesseract.tesseract_cmd = tesseract_path
-            else:
+            #tesseract_path = shutil.which("tesseract")
+            #if tesseract_path:
+            #  pytesseract.pytesseract.tesseract_cmd = tesseract_path
+            #else:
               # Scanned PDF — OCR just a few pages, at lower DPI, no cache write.
-              pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+            #  pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
           
-            poppler_path =  None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+            #poppler_path =  None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
 
             images = convert_from_path(
                 str(path), first_page=1, last_page=min(max_pages, len(reader.pages)),
@@ -375,9 +380,10 @@ class DocumentReaderTool(BaseTool):
             try:
 
                 # Force paths (adjust if your install locations are different)
-                pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-                poppler_path = r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
-
+                #pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+                poppler_path = _configure_ocr_paths() #r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+                
+              
                 # Adaptive page limit
                 file_size_mb = path.stat().st_size / (1024 * 1024)
                 
@@ -404,7 +410,7 @@ class DocumentReaderTool(BaseTool):
 
                 def _ocr_one_page(args):
                     i, img = args
-                    text = pytesseract.image_to_string(img, lang="eng", config="--psm 6")
+                    text = _configure_ocr_paths(img, lang="eng", config="--psm 6") #pytesseract.image_to_string(img, lang="eng", config="--psm 6")
                     return i, text
 
                 max_workers = min(4, os.cpu_count() or 2)
