@@ -153,7 +153,7 @@ class ReActPattern(BasePattern):
                     "answer as plain prose text, wrapped in <final_answer>...</final_answer>, "
                     "and nothing else."
                 )
-                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=1536, purpose="synthesize")
+                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=2048, purpose="synthesize")
             else:
                 raise
 
@@ -175,7 +175,7 @@ class ReActPattern(BasePattern):
                 "<final_answer>...</final_answer>, and nothing else."
             )
             try:
-                raw_retry = llm.chat(system=self.system_prompt, user=retry_prompt, max_tokens=1536)
+                raw_retry = llm.chat(system=self.system_prompt, user=retry_prompt, max_tokens=2048)
                 parsed_retry = ResponseParser.parse(raw_retry)
                 retry_text = (parsed_retry.final_answer or raw_retry).strip()
                 final_text = retry_text if not _looks_like_tool_call(retry_text) else (
