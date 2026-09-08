@@ -9,7 +9,5 @@ pytesseract
 pillow
 pandas
 streamlit
-pypdf 
-pdfreader
 python-docx 
 
