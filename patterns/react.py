@@ -46,7 +46,7 @@ class ReActPattern(BasePattern):
             f"data requested doesn't exist, say so plainly and stop there.\n"
         )
         prompt = self._build_think_prompt(query, scratchpad, registry, extra)
-        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=2048, purpose="think")
+        raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536, purpose="think")
         return self._parse_decision(raw, scratchpad)
 
     def post_process(self, tool_result, query, scratchpad, llm, registry, tool_name=None):
@@ -140,7 +140,7 @@ class ReActPattern(BasePattern):
            f"Wrap the final answer in <final_answer>...</final_answer>."
         )
         try:
-            raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=1536)
+            raw = llm.chat(system=self.system_prompt, user=prompt, max_tokens=2048)
         except RuntimeError as e:
             err_str = str(e).lower()
             if "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str:
@@ -153,7 +153,7 @@ class ReActPattern(BasePattern):
                     "answer as plain prose text, wrapped in <final_answer>...</final_answer>, "
                     "and nothing else."
                 )
-                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=2048, purpose="synthesize")
+                raw = llm.chat(system=self.system_prompt, user=firmer_prompt, max_tokens=1536, purpose="synthesize")
             else:
                 raise
 
