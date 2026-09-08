@@ -10,4 +10,6 @@ pillow
 pandas
 streamlit
 python-docx 
-
+pdf2image
+pypdf
+pytesseract
