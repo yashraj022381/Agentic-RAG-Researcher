@@ -12,4 +12,4 @@ streamlit
 pypdf 
 pdfreader
 python-docx 
-poppler-utils
+
