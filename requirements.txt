@@ -13,4 +13,3 @@ pypdf
 pdfreader
 python-docx 
 poppler-utils
-tesseract-ocr
