@@ -2,6 +2,7 @@ import os
 import re
 import json
 import docx
+import shutil
 import pytesseract
 import concurrent.futures
 from pathlib import Path
@@ -279,9 +280,15 @@ class DocumentReaderTool(BaseTool):
             if len(text.strip()) > 200:
                 return text  # real text layer exists, no OCR needed
 
-            # Scanned PDF — OCR just a few pages, at lower DPI, no cache write.
-            pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-            poppler_path = r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+            tesseract_path = shutil.which("tesseract")
+            if tesseract_path:
+              pytesseract.pytesseract.tesseract_cmd = tesseract_path
+            else:
+              # Scanned PDF — OCR just a few pages, at lower DPI, no cache write.
+              pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+          
+            poppler_path =  None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
 
             images = convert_from_path(
                 str(path), first_page=1, last_page=min(max_pages, len(reader.pages)),
@@ -420,14 +427,7 @@ class DocumentReaderTool(BaseTool):
                     if text and len(text.strip()) > 40:
                         ocr_parts.append(f"[Page {i+1} - OCR]\n{text.strip()}")
 
-                """
-                ocr_parts = []
-                for i, img in enumerate(images):
-                    print(f"   → OCR page {i+1}/{len(images)}...")
-                    text = pytesseract.image_to_string(img, lang="eng", config="--psm 6")
-                    if text and len(text.strip()) > 40:
-                        ocr_parts.append(f"[Page {i+1} - OCR]\n{text.strip()}")
-                 """
+              
                 if ocr_parts:
                     result = "\n\n".join(ocr_parts)
                     print(f"✅ OCR completed. Extracted {len(result)} characters.")
