@@ -8,8 +8,19 @@ import concurrent.futures
 from pathlib import Path
 from typing import Optional, Tuple
 from .base import BaseTool, ToolResult
-from pdf2image import convert_from_path
-from pypdf import PdfReader
+#from pdf2image import convert_from_path
+#from pypdf import PdfReader
+try:
+    from pdf2image import convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+
+try:
+    from pypdf import PdfReader
+    PYPDF_AVAILABLE = True
+except ImportError:
+    PYPDF_AVAILABLE = False
 from utils.paths import DOCS_DIR
 from utils.document_excerpt import extract_relevant_excerpt
                 
@@ -305,6 +316,14 @@ class DocumentReaderTool(BaseTool):
             )
             return ocr_text
         except Exception:
+          if not PYPDF_AVAILABLE:
+            return ToolResult(
+              content="PDF reading is currently unavailable (pypdf not installed on this deployment).",
+              source=f"{path.name}: unavailable",
+              confidence=0.1,
+            )
+            reader = PdfReader(path)
+            ...
             return ""
 
     def _read_file(self, path: Path):
@@ -407,6 +426,14 @@ class DocumentReaderTool(BaseTool):
                     thread_count=3,
                     poppler_path=poppler_path,
                 )
+                if not PYPDF_AVAILABLE:
+                  return ToolResult(
+                    content="PDF reading is currently unavailable (pypdf not installed on this deployment).",
+                    source=f"{path.name}: unavailable",
+                    confidence=0.1,
+                  )
+                  reader = PdfReader(path)
+                  ...
 
                 def _ocr_one_page(args):
                     i, img = args
