@@ -49,7 +49,6 @@ class ResearchLoop:
             s for s in scratchpad.steps
             if s.tool_used in ("document_reader", "web_search") and s.observation
         ]
-        #combined = scratchpad.all_observations(max_chars=8000)
         combined = "\n".join(s.observation[:4000] for s in relevant_steps)[:8000]
         money_re = re.compile(r'\$\s?([\d,]+\.?\d*)\s*(million|billion)?', re.IGNORECASE)
 
@@ -106,29 +105,33 @@ class ResearchLoop:
         to find...') that pollute the actual search intent. If a prior
         document_reader step already surfaced a specific named entity (e.g.
         a competitor's company name), search for THAT plus the core topic."""
-        proper_noun_pattern = re.compile(r'\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})\b')
+        print("      [DEBUG] _build_web_search_query version: v52-competitor-anchor")
         entity = None
         for s in reversed(scratchpad.steps):
             if s.tool_used == "document_reader" and s.observation:
-                idx = s.observation.lower().find("competitor")
-                window = s.observation[max(0, idx - 200):idx + 200] if idx != -1 else s.observation[:2000]
-                matches = proper_noun_pattern.findall(window)
-                if matches:
-                    entity = matches[0]
+                m = re.search(
+                    r'competitor:?\s*\n?\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})',
+                    s.observation, re.IGNORECASE,
+                )
+                if m:
+                    entity = m.group(1).strip()
                     break
-
+               
         year_match = re.search(r'\b20(2[4-9]|3\d)\b', query)
         year = year_match.group(0) if year_match else ""
         topic_words = [w for w in ["revenue", "earnings", "results"] if w in query.lower()]
 
         if entity:
-            return f"{entity} {year} {' '.join(topic_words) or 'revenue'}".strip()
+            built_query = f"{entity} {year} {' '.join(topic_words) or 'revenue'}".strip()
+        else:
+            stripped = re.sub(
+                r'\b(search the web|find|search|to|and|calculate|our|read|identify|extract)\b',
+                '', query, flags=re.IGNORECASE,
+            )
+            built_query = " ".join(stripped.split())[:80]
 
-        stripped = re.sub(
-            r'\b(search the web|find|search|to|and|calculate|our|read|identify|extract)\b',
-            '', query, flags=re.IGNORECASE,
-        )
-        return " ".join(stripped.split())[:80]
+        print(f"      [DEBUG] _build_web_search_query built: {built_query!r}")
+        return built_query
 
     def _required_tools_satisfied(self, required_tools, tools_tried, scratchpad, plan) -> bool:
         """Whether every tool the plan calls for has been sufficiently
@@ -266,11 +269,11 @@ class ResearchLoop:
             # If the previous hop was flagged by CRAG as needing a web
             # correction, force web_search now — this is what actually
             # performs the correction, as its own real hop.
-            crag_correction_forced = False
-            if any(getattr(s, 'needs_correction', False) for s in scratchpad.steps) and "web_search" not in tools_tried:
-                print(f"      ⚠️ Prior retrieval flagged for CRAG correction — forcing web_search this hop.")
-                tool_name = "web_search"
-                crag_correction_forced = True
+            #crag_correction_forced = False
+            #if any(getattr(s, 'needs_correction', False) for s in scratchpad.steps) and "web_search" not in tools_tried:
+            #    print(f"      ⚠️ Prior retrieval flagged for CRAG correction — forcing web_search this hop.")
+            #    tool_name = "web_search"
+            #    crag_correction_forced = True
 
             crag_correction_forced = False
             if any(getattr(s, 'needs_correction', False) for s in scratchpad.steps) and "web_search" not in tools_tried:
@@ -336,6 +339,7 @@ class ResearchLoop:
                         print(f"      ⚠️ Model chose '{tool_name}' but plan still needs {not_yet_tried} — switching to '{next_tool}'.")
                         print(f"      ⚠️ Model wants to FINISH, but plan still requires {not_yet_tried} — forcing '{next_tool}' instead.")
                         tool_name = next_tool
+                        override_tool_input = None
                     elif tool_name in last_failed_tools and tool_name in tools_tried:
                         print(f"      ⚠️ '{tool_name}' already returned no-match — trying web_search instead.")
                         tool_name = "web_search"
@@ -371,9 +375,7 @@ class ResearchLoop:
             resolved_tool = self.registry.get(tool_name)
             if resolved_tool is None:
                 resolved_tool = self.registry.get("web_search")
-                #tool_name = "web_search"
-                #if tool_name == "web_search" and (not tool_input or tool_input.strip() == query.strip()):
-                #    tool_input = self._build_web_search_query(query, scratchpad)
+               
             tool = resolved_tool
             tools_tried.add(tool_name)
 
@@ -386,7 +388,6 @@ class ResearchLoop:
             elif tool_name == "document_reader":
                 tool_input = query
             elif tool_name != original_tool_name:
-                #tool_input = query
                 if tool_name == "web_search":
                     tool_input = self._build_web_search_query(query, scratchpad)
                 else:
@@ -476,7 +477,6 @@ class ResearchLoop:
                     registry=self.registry,
                 )
             except Exception as e:
-                import traceback
                 print(f"      [DEBUG] ❌ post_process() crashed on hop {hop}: {e}")
                 traceback.print_exc()
 
@@ -535,8 +535,12 @@ class ResearchLoop:
                 llm=self.llm,
             )
         except RuntimeError as e:
+            print("      [DEBUG] engine.py exception-handling version: v53-clean-fallback")
+
             err_str = str(e).lower()
-            if "rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str:
+            if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str
+                    or "too large" in err_str or "413" in err_str
+                    or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
                 calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
                 calc_note = f"\n\nComputed result: {calc_steps[-1].observation}" if calc_steps else ""
                 raw_findings = scratchpad.all_observations()[:1200]
@@ -547,26 +551,32 @@ class ResearchLoop:
                 final_answer = (
                     f"Research completed through {scratchpad.hop_count} hop(s), but the "
                     f"final synthesis step failed ({str(e)[:150]}).{calc_note}\n\n"
-                    f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
+                    #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
                     f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
                 )
             else:
-                if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
-                    final_answer = f"Research completed. {str(e)}"
+                #if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
+                final_answer = f"Research completed. {str(e)}"
         except Exception as e:
             err_str = str(e).lower()
             if "too large" in err_str or "413" in err_str or "reduce your message size" in err_str:
                 calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
                 calc_note = f"\n\nComputed result: {calc_steps[-1].observation}" if calc_steps else ""
+                raw_findings = scratchpad.all_observations()[:1200]
+                try:
+                    raw_findings = clean_answer_text(raw_findings)
+                except Exception:
+                    pass
                 final_answer = (
                     f"Research completed through {scratchpad.hop_count} hop(s), but the final "
                     f"synthesis step failed because the combined findings exceeded the model's "
-                    f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
+                    #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
+                    f"token limit.{calc_note}\n\n"
                     f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
                 )
             else:
-                if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
-                    final_answer = f"Research completed. {str(e)}"
+                #if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
+                final_answer = f"Research completed. {str(e)}"
 
         if not final_answer or not final_answer.strip():
             final_answer = (
