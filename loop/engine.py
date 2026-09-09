@@ -127,14 +127,14 @@ class ResearchLoop:
              web_intent_match = re.search(
                  r'search (?:the )?web for (.{5,60}?)(?:\.|,|$)', query, re.IGNORECASE
              )
-            if web_intent_match:
-                built_query = web_intent_match.group(1).strip()
+             if web_intent_match:
+                 built_query = web_intent_match.group(1).strip()
             else:
-                stripped = re.sub(
-                    r'\b(search the web|find|search|to|and|calculate|our|read|identify|extract)\b',
-                    '', query, flags=re.IGNORECASE,
-                )
-                built_query = " ".join(stripped.split())[:80]
+                 stripped = re.sub(
+                     r'\b(search the web|find|search|to|and|calculate|our|read|identify|extract)\b',
+                     '', query, flags=re.IGNORECASE,
+                 )
+                 built_query = " ".join(stripped.split())[:80]
 
         print(f"      [DEBUG] _build_web_search_query built: {built_query!r}")
         return built_query
