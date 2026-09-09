@@ -204,6 +204,7 @@ class DocumentReaderTool(BaseTool):
       if tesseract_path and PYTESSERACT_AVAILABLE:
           pytesseract.pytesseract.tesseract_cmd = tesseract_path or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
       #return None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+      #poppler_path = r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
       return None if shutil.which("pdftoppm") else None
 
     def _find_best_match(self, query: str, files: list) -> Optional[Path]:
@@ -295,6 +296,14 @@ class DocumentReaderTool(BaseTool):
         if not PYPDF_AVAILABLE:
             return ""
 
+        print(f"📄 '{path.name}' appears scanned → starting OCR...")
+        if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
+            return (    
+                f"'{path.name}' appears to be a scanned PDF, but OCR support "
+                f"(pdf2image/pytesseract) is not available on this deployment.",
+                 "OCR unavailable on this deployment",
+            )
+
         try:
             reader = PdfReader(str(path))
             text_parts = []
@@ -315,11 +324,11 @@ class DocumentReaderTool(BaseTool):
 
           
             #poppler_path =  None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
-            poppler_path = r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
-            if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
-                return ""
+            #poppler_path = r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+            
 
             poppler_path = self._configure_ocr_paths()
+
             images = convert_from_path(
                 str(path), first_page=1, last_page=min(max_pages, len(reader.pages)),
                 dpi=dpi, fmt="jpeg", poppler_path=poppler_path,
@@ -403,6 +412,13 @@ class DocumentReaderTool(BaseTool):
             # ---------- OCR FALLBACK for scanned PDFs ----------
             print(f"📄 '{path.name}' appears scanned → starting OCR...")
 
+            if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
+                    return (
+                        f"'{path.name}' appears to be a scanned PDF, but OCR support "
+                        f"(pdf2image/pytesseract) is not available on this deployment.",
+                         "OCR unavailable on this deployment",
+                    )
+
             try:
 
                 # Force paths (adjust if your install locations are different)
@@ -424,14 +440,6 @@ class DocumentReaderTool(BaseTool):
 
                 last_page = min(last_page, total_pages)
 
-                print(f"📄 '{path.name}' appears scanned → starting OCR...")
-
-                if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
-                    return (
-                        f"'{path.name}' appears to be a scanned PDF, but OCR support "
-                        f"(pdf2image/pytesseract) is not available on this deployment.",
-                         "OCR unavailable on this deployment",
-                    )
 
                 images = convert_from_path(
                     str(path),
