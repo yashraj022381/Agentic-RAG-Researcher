@@ -293,16 +293,13 @@ class DocumentReaderTool(BaseTool):
         if ext != ".pdf":
             return self._cheap_preview(path)
 
-        if not PYPDF_AVAILABLE:
-            return ""
-
-        print(f"📄 '{path.name}' appears scanned → starting OCR...")
-        if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
-            return (    
-                f"'{path.name}' appears to be a scanned PDF, but OCR support "
-                f"(pdf2image/pytesseract) is not available on this deployment.",
-                 "OCR unavailable on this deployment",
-            )
+        #print(f"📄 '{path.name}' appears scanned → starting OCR...")
+        #if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
+        #    return (    
+        #        f"'{path.name}' appears to be a scanned PDF, but OCR support "
+        #        f"(pdf2image/pytesseract) is not available on this deployment.",
+        #         "OCR unavailable on this deployment",
+        #    )
 
         try:
             reader = PdfReader(str(path))
