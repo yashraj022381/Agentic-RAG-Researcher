@@ -313,6 +313,21 @@ class CRAGPattern(BasePattern):
         def _looks_like_tool_call(text: str) -> bool:
             t = text.strip()
             return t.startswith("{") and ('"action"' in t or '"tool"' in t or '"parameters"' in t)
+            
+        def _looks_like_unfinished_answer(text: str) -> bool:
+            t = text.strip()
+            if t.startswith("{") and ('"action"' in t or '"tool"' in t or '"parameters"' in t):
+                return True
+            # Model narrated a plan instead of answering — "We'll search...",
+            # "I will now...", etc., as the dominant content with no concrete
+            # facts/figures actually stated.
+            planning_phrases = ("we'll search", "we will search", "i will search",
+                                "i will now", "let's search", "we need to search")
+            if any(t.lower().startswith(p) for p in planning_phrases):
+                return True
+            return False
+            #t = text.strip()
+            #return t.startswith("{") and ('"action"' in t or '"tool"' in t or '"parameters"' in t)
 
 
         if _looks_like_tool_call(final_text):
@@ -327,7 +342,7 @@ class CRAGPattern(BasePattern):
                 raw_retry = llm.chat(system=self.system_prompt, user=retry_prompt, max_tokens=1536)
                 parsed_retry = ResponseParser.parse(raw_retry)
                 retry_text = (parsed_retry.final_answer or raw_retry).strip()
-                final_text = retry_text if not _looks_like_tool_call(retry_text) else (
+                final_text = retry_text if not _looks_like_tool_call(retry_text) and _looks_like_unfinished_answer(retry_text) else (
                     "The research gathered relevant information, but the model's "
                     "response could not be converted into a plain-text answer. "
                     "Please try rephrasing the question or running it again."
