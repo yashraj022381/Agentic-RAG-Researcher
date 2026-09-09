@@ -3,7 +3,12 @@ import re
 import json
 import docx
 import shutil
-import pytesseract
+#import pytesseract
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    PYTESSERACT_AVAILABLE = False
 import concurrent.futures
 from pathlib import Path
 from typing import Optional, Tuple
@@ -194,10 +199,12 @@ class DocumentReaderTool(BaseTool):
                 confidence=0.3,
             )
 
-    def _configure_ocr_paths():
+    def _configure_ocr_paths(self):
       tesseract_path = shutil.which("tesseract")
-      pytesseract.pytesseract.tesseract_cmd = tesseract_path or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-      return None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+      if tesseract_path and PYTESSERACT_AVAILABLE:
+          pytesseract.pytesseract.tesseract_cmd = tesseract_path or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+      #return None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+      return None if shutil.which("pdftoppm") else None
 
     def _find_best_match(self, query: str, files: list) -> Optional[Path]:
         """
@@ -285,6 +292,9 @@ class DocumentReaderTool(BaseTool):
         if ext != ".pdf":
             return self._cheap_preview(path)
 
+        if not PYPDF_AVAILABLE:
+            return ""
+
         try:
             reader = PdfReader(str(path))
             text_parts = []
@@ -305,7 +315,11 @@ class DocumentReaderTool(BaseTool):
 
           
             #poppler_path =  None if shutil.which("pdftoppm") else r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+            poppler_path = r"C:\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+            if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
+                return ""
 
+            poppler_path = self._configure_ocr_paths()
             images = convert_from_path(
                 str(path), first_page=1, last_page=min(max_pages, len(reader.pages)),
                 dpi=dpi, fmt="jpeg", poppler_path=poppler_path,
@@ -316,14 +330,6 @@ class DocumentReaderTool(BaseTool):
             )
             return ocr_text
         except Exception:
-          if not PYPDF_AVAILABLE:
-            return ToolResult(
-              content="PDF reading is currently unavailable (pypdf not installed on this deployment).",
-              source=f"{path.name}: unavailable",
-              confidence=0.1,
-            )
-            reader = PdfReader(path)
-            ...
             return ""
 
     def _read_file(self, path: Path):
@@ -349,6 +355,7 @@ class DocumentReaderTool(BaseTool):
         """Read PDF using pypdf, bounded by MAX_PDF_PAGES so an extremely
         long document fails fast with a clear note instead of taking
         minutes and looking like a hang."""
+        
         cache_path = path.parent / f"{path.name}.ocr_cache.json"
 
         if cache_path.exists():
@@ -417,6 +424,15 @@ class DocumentReaderTool(BaseTool):
 
                 last_page = min(last_page, total_pages)
 
+                print(f"📄 '{path.name}' appears scanned → starting OCR...")
+
+                if not PDF2IMAGE_AVAILABLE or not PYTESSERACT_AVAILABLE:
+                    return (
+                        f"'{path.name}' appears to be a scanned PDF, but OCR support "
+                        f"(pdf2image/pytesseract) is not available on this deployment.",
+                         "OCR unavailable on this deployment",
+                    )
+
                 images = convert_from_path(
                     str(path),
                     first_page=1,
@@ -437,7 +453,7 @@ class DocumentReaderTool(BaseTool):
 
                 def _ocr_one_page(args):
                     i, img = args
-                    text = _configure_ocr_paths(img, lang="eng", config="--psm 6") #pytesseract.image_to_string(img, lang="eng", config="--psm 6")
+                    text = pytesseract.image_to_string(img, lang="eng", config="--psm 6")
                     return i, text
 
                 max_workers = min(4, os.cpu_count() or 2)
