@@ -1,21 +1,35 @@
 # Agentic-RAG-Researcher
 
-- A multi-pattern agentic research system that auto-selects between most suitable three reasoning strategies — ReAct, Self-RAG, and CRAG — and can ground its answers in       your own uploaded documents (PDFs, DOCX, TXT, CSV) before ever touching the web.
+- A multi-pattern agentic research system that auto-selects between most suitable three reasoning strategies — ReAct, Self-RAG, and CRAG — based on the shape of the           incoming question, then runs a multi-hop tool-use loop to gather, verify, and synthesize an answer from local documents, structured data, and live web search. 
 
 - Built with a modular architecture: pattern selection → multi-hop research loop → tool registry → synthesis, with full scratchpad tracing and live confidence scores.
 
+- Built to answer the kind of multi-hop, adversarial questions that break naive single-pass RAG systems: false premises that should be caught rather than hallucinated past,   schema mismatches in tabular data, cross-source questions that genuinely need both a local document and live web data synthesized together, and verbatim-citation            requirements with zero tolerance for paraphrase drift.
 
+
+## Why three patterns instead of one
+   Pattern	        Core idea	                                           Shines on
+   ReAct            Interleaved reasoning + tool calls, one	             Multi-hop lookups, cross-source synthesis
+                    sub-question per hop.                                (local doc + web).
+   Self-RAG	        Self-reflective grading of every retrieval,          Strict verification, exact computation,
+                    with automatic re-query on low relevance.            verbatim citation.
+   CRAG	            Explicit false-premise / schema-                     Queries that might be based on something that isn't actually true                                                       mismatch detection before trusting a retrieval.      or doesn't exist in the data.
+   
+
+- Pattern selection is automatic: a fast, deterministic keyword-and-structure classifier handles confident cases immediately; anything genuinely ambiguous defers to an LLM-   based planner instead of guessing. You can also force a specific pattern via CLI flag or the web UI for testing.
+  
 ## Features
 
-- **Automatic pattern selection**  
-  Chooses between ReAct (iterative reason-and-act), Self-RAG (self-reflective retrieval with relevance grading), and CRAG (corrective retrieval with web fallback) based on
-  query characteristics. Can also be forced via CLI or UI.
+- **Automatic pattern selection**
+  - Pattern selection is automatic: a fast, deterministic keyword-and-structure classifier handles confident cases immediately; anything genuinely ambiguous defers to an        LLM-based planner instead of guessing. You can also force a specific pattern via CLI flag or the web UI for testing.
+  - Chooses between ReAct (iterative reason-and-act), Self-RAG (self-reflective retrieval with relevance grading), and CRAG (corrective retrieval with web fallback) based on
+    query characteristics. Can also be forced via CLI or UI.
 
 - **Document-first grounding**  
-  Prioritises local documents (PDF, DOCX, TXT, CSV) with OCR support. Only reaches for web search when local content is insufficient.
+  - Prioritises local documents (PDF, DOCX, TXT, CSV) with OCR support. Only reaches for web search when local content is insufficient.
 
 - **Multi-hop research loop**  
-  Configurable number of reasoning hops (default 5–6). Every hop records thought, tool call, observation, and confidence.
+  - Configurable number of reasoning hops (default 5–6). Every hop records thought, tool call, observation, and confidence.
 
 - **Rich toolset**  
   - `document_reader` – extracts relevant excerpts from uploaded files  
