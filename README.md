@@ -24,32 +24,37 @@
 
 ## 📸 Screenshots
 
-  ### Overview
+  ### 1. Overview
   ![Overview - 1](assets/overview1.png)
-  ![Overview - 2](assets/overview2.png)
-  ![Overview - 3](assets/overview3.png)
-  ![Overview - 4](assets/overview4.png)
-  ![Overview - 5](assets/overview5.png)
+  
+ 
+  
+
 
   
-  Ask — live reasoning trace	                 
+  ### 2. Ask — live reasoning trace	& Pattern auto-selection in action                 
   ![Ask Tab1](assets/screenshot-ask1.png)
   ![Ask Tab2](assets/screenshot-ask2.png)
   ![Ask Tab3](assets/screenshot-ask3.png)
   ![Ask Tab4](assets/screenshot-ask4.png)
   ![Ask Tab5](assets/screenshot-ask5.png)
   ![Ask Tab6](assets/screenshot-ask6.png)
-  
-  Documents tabs
-  ![Documents Tab](assets/screenshot-docs.png)
+
+
 
   
+  ### 3. Documents tabs
+  ![Documents Tab](assets/overview2.png)
+
   
-  Analytics tab
- ![Analytics Tab](assets/screenshot-analytics.png)
+
   
-  Pattern auto-selection in action
-  ![Analytics Tab](assets/screenshot-analytics.png)
+  ### 4. Analytics tab
+ ![Analytics Tab1](assets/overview3.png)
+ ![Analytics Tab2](assets/overview4.png)
+ ![Analytics Tab3](assets/overview5.png)
+ 
+  
 
 
 ## Why three patterns instead of one
