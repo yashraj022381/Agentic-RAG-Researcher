@@ -31,6 +31,7 @@
   Analytics tab	                            Pattern auto-selection in action
   Show Image	                               Show Image
 
+
 ## Why three patterns instead of one
 
    Pattern	        Core idea	                                           Shines on
