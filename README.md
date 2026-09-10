@@ -15,6 +15,19 @@
 - Built to answer the kind of multi-hop, adversarial questions that break naive single-pass RAG systems: false premises that should be caught rather than hallucinated past,   schema mismatches in tabular data, cross-source questions that genuinely need both a local document and live web data synthesized together, and verbatim-citation            requirements with zero tolerance for paraphrase drift.
 
 
+🔗 Try it live: agentic-rag-researcher-kr8cf3gfgtsayrbobehhc8.streamlit.app
+
+📖 See POSTMORTEM.md for the real debugging story behind this project — 18 concrete bugs, root causes, and what I'd do          differently.
+
+## Screenshots
+
+  <!-- Drop your own screenshots into assets/screenshots/ with these exact filenames and they'll render automatically below.    Recommended: crop to the relevant panel, ~1200px wide, PNG. -->
+  Ask — live reasoning trace	                 Documents tab
+  Show Image	                                Show Image
+  
+  Analytics tab	                            Pattern auto-selection in action
+  Show Image	                               Show Image
+
 ## Why three patterns instead of one
 
    Pattern	        Core idea	                                           Shines on
