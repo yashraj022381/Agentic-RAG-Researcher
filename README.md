@@ -1,5 +1,13 @@
 # Agentic-RAG-Researcher
 
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Groq](https://img.shields.io/badge/Powered%20by-Groq-orange)](https://groq.com/)
+[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![ChromaDB](https://img.shields.io/badge/Vector%20Store-ChromaDB-green)](https://www.trychroma.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/yashraj022381/Agentic-RAG-Researcher?style=social)](https://github.com/yashraj022381/Agentic-RAG-Researcher)
+[![GitHub forks](https://img.shields.io/github/forks/yashraj022381/Agentic-RAG-Researcher?style=social)](https://github.com/yashraj022381/Agentic-RAG-Researcher)
+
 - A multi-pattern agentic research system that auto-selects between most suitable three reasoning strategies — ReAct, Self-RAG, and CRAG — based on the shape of the           incoming question, then runs a multi-hop tool-use loop to gather, verify, and synthesize an answer from local documents, structured data, and live web search. 
 
 - Built with a modular architecture: pattern selection → multi-hop research loop → tool registry → synthesis, with full scratchpad tracing and live confidence scores.
