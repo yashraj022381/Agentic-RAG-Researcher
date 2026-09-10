@@ -256,4 +256,9 @@ iii) python -m venv .venv
 ## License
   MIT — see LICENSE.
    
-    
+
+## Acknowledgements
+
+  - Groq for fast inference.
+  - ChromaDB & sentence-transformers for local retrieval.
+  - The broader open-source RAG / agentic community for inspiration on ReAct, Self-RAG, and CRAG patterns.
