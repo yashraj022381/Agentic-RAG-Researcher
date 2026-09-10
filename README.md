@@ -22,14 +22,34 @@
 
 📖 See POSTMORTEM.md for the real debugging story behind this project — 18 concrete bugs, root causes, and what I'd do          differently.
 
-## Screenshots
+## 📸 Screenshots
 
-  <!-- Drop your own screenshots into assets/screenshots/ with these exact filenames and they'll render automatically below.    Recommended: crop to the relevant panel, ~1200px wide, PNG. -->
-  Ask — live reasoning trace	                 Documents tab
-  Show Image	                                Show Image
+  ### Overview
+  ![Overview - 1](assets/overview1.png)
+  ![Overview - 2](assets/overview2.png)
+  ![Overview - 3](assets/overview3.png)
+  ![Overview - 4](assets/overview4.png)
+  ![Overview - 5](assets/overview5.png)
+
   
-  Analytics tab	                            Pattern auto-selection in action
-  Show Image	                               Show Image
+  Ask — live reasoning trace	                 
+  ![Ask Tab1](assets/screenshot-ask1.png)
+  ![Ask Tab2](assets/screenshot-ask2.png)
+  ![Ask Tab3](assets/screenshot-ask3.png)
+  ![Ask Tab4](assets/screenshot-ask4.png)
+  ![Ask Tab5](assets/screenshot-ask5.png)
+  ![Ask Tab6](assets/screenshot-ask6.png)
+  
+  Documents tabs
+  ![Documents Tab](assets/screenshot-docs.png)
+
+  
+  
+  Analytics tab
+ ![Analytics Tab](assets/screenshot-analytics.png)
+  
+  Pattern auto-selection in action
+  ![Analytics Tab](assets/screenshot-analytics.png)
 
 
 ## Why three patterns instead of one
