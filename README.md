@@ -64,72 +64,71 @@
      
 ## Features
 
-- **Automatic pattern selection**
-  - Pattern selection is automatic: a fast, deterministic keyword-and-structure classifier handles confident cases immediately; anything genuinely ambiguous defers to an        LLM-based planner instead of guessing. You can also force a specific pattern via CLI flag or the web UI for testing.
-  - Chooses between ReAct (iterative reason-and-act), Self-RAG (self-reflective retrieval with relevance grading), and CRAG (corrective retrieval with web fallback) based on
-    query characteristics. Can also be forced via CLI or UI.
+  i) **Automatic pattern selection**
+    - Pattern selection is automatic: a fast, deterministic keyword-and-structure classifier handles confident cases               immediately; anything genuinely ambiguous defers to an        LLM-based planner instead of guessing. You can also            force a specific pattern via CLI flag or the web UI for testing.
+    - Chooses between ReAct (iterative reason-and-act), Self-RAG (self-reflective retrieval with relevance grading), and           CRAG (corrective retrieval with web fallback) based on query characteristics. Can also be forced via CLI or UI.
 
-- **Document-first grounding**  
-  - Prioritises local documents (PDF, DOCX, TXT, CSV) with OCR support. Only reaches for web search when local content is insufficient.
+ ii) **Document-first grounding**  
+    - Prioritises local documents (PDF, DOCX, TXT, CSV) with OCR support. Only reaches for web search when local content is        insufficient.
 
-- **Multi-hop research loop**  
-  - Configurable number of reasoning hops (default 5–6). Every hop records thought, tool call, observation, and confidence.
+iii) **Multi-hop research loop**  
+    - Configurable number of reasoning hops (default 5–6). Every hop records thought, tool call, observation, and confidence.
 
-- **Rich toolset**  
-  - `document_reader` – extracts relevant excerpts from uploaded files  
-  - `csv_analyzer` – schema-aware analysis and deterministic computation on CSV data  
-  - `knowledge_base` – ChromaDB vector store  
-  - `web_search` – DuckDuckGo-backed search  
-  - `fact_checker` – verification helpers  
-  - `calculator` – deterministic arithmetic  
-  - `synthesizer` – final answer generation  
+ iv) **Rich toolset**  
+    - `document_reader` – extracts relevant excerpts from uploaded files  
+    - `csv_analyzer` – schema-aware analysis and deterministic computation on CSV data  
+    - `knowledge_base` – ChromaDB vector store  
+    - `web_search` – DuckDuckGo-backed search  
+    - `fact_checker` – verification helpers  
+    - `calculator` – deterministic arithmetic  
+    - `synthesizer` – final answer generation  
 
-- **Streamlit web application**  
-  Three tabs: Ask a question (live hop-by-hop trace), Documents (upload / manage), Analytics (usage & cost).
+  v) **Streamlit web application**  
+    - Three tabs: Ask a question (live hop-by-hop trace), Documents (upload / manage), Analytics (usage & cost).
 
-- **CLI interface**  
-  Single-query, interactive REPL, or demo mode with forced-pattern and verbose options.
+ vi) **CLI interface**  
+    - Single-query, interactive REPL, or demo mode with forced-pattern and verbose options.
 
-- **Cost & usage tracking**  
-  Logs estimated token cost, latency, hops, and pattern usage.
+vii) **Cost & usage tracking**  
+    - Logs estimated token cost, latency, hops, and pattern usage.
 
 
 ## Tech Stack
 
-- **LLM**: Groq (default model configurable)
-- **Embeddings / Vector store**: sentence-transformers + ChromaDB
-- **Document processing**: pypdf, python-docx, pdf2image, pytesseract, Pillow
-- **Data**: pandas
-- **Web search**: ddgs (DuckDuckGo)
-- **UI**: Streamlit
-- **Other**: python-dotenv, rich, requests
+  - **LLM**: Groq (default model configurable)
+  - **Embeddings / Vector store**: sentence-transformers + ChromaDB
+  - **Document processing**: pypdf, python-docx, pdf2image, pytesseract, Pillow
+  - **Data**: pandas
+  - **Web search**: ddgs (DuckDuckGo)
+  - **UI**: Streamlit
+  - **Other**: python-dotenv, rich, requests
 
 
 ## Prerequisites
 
-- Python 3.10+
-- A free [Groq API key](https://console.groq.com/)
-- A free [Tavily_API_key](https://www.tavily.com/)
-- (Optional) Tesseract OCR if you want scanned-PDF support
+  - Python 3.10+
+  - A free [Groq API key](https://console.groq.com/)
+  - A free [Tavily_API_key](https://www.tavily.com/)
+  - (Optional) Tesseract OCR if you want scanned-PDF support
 
 
-  ## Installation
-  
-      ```bash
-     git clone https://github.com/yashraj022381/Agentic-RAG-Researcher.git
-     cd Agentic-RAG-Researcher
-     pip install -r requirements.txt
+ ## Installation
+ 
+  i)  ``` bash
+   git clone https://github.com/yashraj022381/Agentic-RAG-Researcher.git
+   cd Agentic-RAG-Researcher
+   pip install -r requirements.txt
 
 
-     System dependency (optional, for OCR on scanned PDFs): install Tesseract and Poppler separately — these are system binaries, not Python packages:
-      - macOS: brew install tesseract poppler
-      - Ubuntu/Debian: sudo apt-get install tesseract-ocr poppler-utils
-      - Streamlit Community Cloud: already handled via packages.txt in this repo
+ ii) System dependency (optional, for OCR on scanned PDFs): install Tesseract and Poppler separately — these are system           binaries, not Python packages:
+    - macOS: brew install tesseract poppler
+    - Ubuntu/Debian: sudo apt-get install tesseract-ocr poppler-utils
+    - Streamlit Community Cloud: already handled via packages.txt in this repo
 
-     python -m venv .venv
+iii) python -m venv .venv
      source .venv/bin/activate          # Windows: .venv\Scripts\activate
   
-     Create a .env file in the project root:
+ iv) Create a .env file in the project root:
      env
      GROQ_API_KEY=gsk_your_key_here
 
@@ -159,7 +158,7 @@
         python main.py --verbose
 
      (vii) Run the regression suite:
-         python eval/run_eval.py
+        python eval/run_eval.py
 
 
      Available flags:
