@@ -15,7 +15,12 @@
 - Built to answer the kind of multi-hop, adversarial questions that break naive single-pass RAG systems: false premises that should be caught rather than hallucinated past,   schema mismatches in tabular data, cross-source questions that genuinely need both a local document and live web data synthesized together, and verbatim-citation            requirements with zero tolerance for paraphrase drift.
 
 
-🔗 Try it live: agentic-rag-researcher-kr8cf3gfgtsayrbobehhc8.streamlit.app
+### 🚀 Live Demo
+
+  [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](YOUR_LIVE_DEMO_LINK_HERE)
+   [![Try the App](https://img.shields.io/badge/Try%20Live%20Demo-Click%20Here-brightgreen?style=for-the-                       badge&logo=streamlit)](YOUR_LIVE_DEMO_LINK_HERE)
+
+> Replace `YOUR_LIVE_DEMO_LINK_HERE` with your Streamlit Community Cloud / Hugging Face Spaces / Render link once deployed.
 
 📖 See POSTMORTEM.md for the real debugging story behind this project — 18 concrete bugs, root causes, and what I'd do          differently.
 
