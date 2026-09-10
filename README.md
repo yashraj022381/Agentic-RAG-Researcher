@@ -8,6 +8,7 @@
 
 
 ## Why three patterns instead of one
+
    Pattern	        Core idea	                                           Shines on
    ReAct            Interleaved reasoning + tool calls, one	             Multi-hop lookups, cross-source synthesis
                     sub-question per hop.                                (local doc + web).
@@ -16,8 +17,51 @@
    CRAG	            Explicit false-premise / schema-                     Queries that might be based on something that isn't actually true                                                       mismatch detection before trusting a retrieval.      or doesn't exist in the data.
    
 
-- Pattern selection is automatic: a fast, deterministic keyword-and-structure classifier handles confident cases immediately; anything genuinely ambiguous defers to an LLM-   based planner instead of guessing. You can also force a specific pattern via CLI flag or the web UI for testing.
+## Architecture
+
+  Query
+  ↓
+  Pattern Selector  (auto / forced: react | selfrag | crag)
+  ↓
+  Research Loop (engine + scratchpad)
+  ├── Think → choose tool + input
+  ├── Execute tool (registry)
+  ├── Post-process / grade / correct
+  └── Repeat until confidence or max hops
+  ↓
+  Synthesizer → Final answer + sources + metrics
   
+
+  agentic_rag_researcher/
+  ├── main.py                  # CLI entry point
+  ├── webapp/app.py            # Streamlit web UI (Ask / Documents / Analytics tabs)
+  ├── agent/researcher.py      # Top-level orchestration: routing, precheck, pattern dispatch
+  ├── patterns/                # react.py, selfrag.py, crag.py, base.py, selector.py
+  ├── loop/                    # engine.py (the multi-hop loop), scratchpad.py
+  ├── tools/                   # document_reader, csv_tool, web_search, calculator, registry
+  ├── utils/                   # taxonomy_classifier, query_planner, csv_analyzer, llm_client
+  ├── config/settings.py       # Tuneable knobs (model, max_hops, forced_pattern)
+  ├── documents/               # Drop PDFs / DOCX / TXT / CSVs here
+  ├── eval/                    # 15-case regression suite + runner
+  └── POSTMORTEM.md            # The real debugging journey
+  
+
+ - The loop, in brief: each hop, the active pattern decides on a tool call (or FINISH); the engine validates and, where needed, overrides that choice against the query's       actual requirements (e.g. forcing csv_analyzer before calculator if raw data hasn't been gathered yet, or reactively forcing a web_search correction when CRAG flags a       low-confidence retrieval); the tool runs; the pattern grades the result and updates the scratchpad; the loop repeats until confidence and requirement checks are             satisfied, then synthesizes a final answer from the full scratchpad.
+
+ - Tools are shared, not pattern-specific. web_search and calculator are available to all three patterns via a shared confidence-threshold gate (_maybe_flag_web_fallback /     reactive calculation flagging) — each pattern keeps its own distinct grading logic (CRAG's premise checks, Self-RAG's relevance scoring), but none of them are limited in    which tools they can reach for.
+   
+
+## Key design decisions
+
+  - Deterministic computation, not LLM arithmetic. The CSV tool executes real pandas operations (aggregations, top-N, derived columns, missing-value counts) and hands the       model a VERIFIED COMPUTED RESULT string to report verbatim — the model is never asked to do math it might get wrong.
+    
+  - Query-aware context excerpting, not blind truncation. When aggregating multi-hop context for synthesis, content is windowed around query keywords (or an explicit page       number, if the question names one) rather than just keeping the first N characters — a multi-page document's answer often isn't on page one.
+    
+  - A relevance floor before trusting any tool. Both the CSV router and the document router require more than a single coincidental shared word before treating a file as        relevant to a query — a generic column name like Name or Company shouldn't make an unrelated spreadsheet look like a match.
+  - 
+  - Graceful degradation on synthesis failure. If the final LLM call fails or returns something that isn't a real answer (a leaked tool-call attempt, empty content), the        system falls back to a clearly-labeled, cleaned dump of the raw findings rather than showing an error or garbage text.
+
+     
 ## Features
 
 - **Automatic pattern selection**
@@ -50,33 +94,6 @@
   Logs estimated token cost, latency, hops, and pattern usage.
 
 
-## Architecture Overview
-Query
-↓
-Pattern Selector  (auto / forced: react | selfrag | crag)
-↓
-Research Loop (engine + scratchpad)
-├── Think → choose tool + input
-├── Execute tool (registry)
-├── Post-process / grade / correct
-└── Repeat until confidence or max hops
-↓
-Synthesizer → Final answer + sources + metrics
-textKey directories:
-
-| Directory     | Responsibility                                      |
-|---------------|-----------------------------------------------------|
-| `agent/`      | Core orchestrator (`AgenticRAGResearcher`)          |
-| `patterns/`   | ReAct, Self-RAG, CRAG implementations + selector    |
-| `loop/`       | Multi-hop engine and scratchpad                     |
-| `tools/`      | Tool registry and individual tools                  |
-| `config/`     | Settings dataclass (model, thresholds, hops, etc.)  |
-| `utils/`      | LLM client, display, query planning, cost tracking… |
-| `webapp/`     | Streamlit frontend                                  |
-| `documents/`  | Local document store (PDF, DOCX, TXT, CSV)          |
-| `eval/`       | Evaluation harness and test queries                 |
-
-
 ## Tech Stack
 
 - **LLM**: Groq (default model configurable)
@@ -97,15 +114,20 @@ textKey directories:
 
 
   ## Installation
+  
       ```bash
      git clone https://github.com/yashraj022381/Agentic-RAG-Researcher.git
      cd Agentic-RAG-Researcher
+     pip install -r requirements.txt
+
+
+     System dependency (optional, for OCR on scanned PDFs): install Tesseract and Poppler separately — these are system binaries, not Python packages:
+      - macOS: brew install tesseract poppler
+      - Ubuntu/Debian: sudo apt-get install tesseract-ocr poppler-utils
+      - Streamlit Community Cloud: already handled via packages.txt in this repo
 
      python -m venv .venv
      source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
-     pip install -r requirements.txt
-
   
      Create a .env file in the project root:
      env
@@ -115,17 +137,29 @@ textKey directories:
 ## Usage
 
   1. Command-line interface
-     # Single query (auto pattern)
-     python main.py --query "What technology powers large language models?"
 
-     # Force a specific pattern
-     python main.py --query "Verify: Is Python older than Java?" --forced-pattern crag
+     (i) Web UI (recommended):
+        streamlit run webapp/app.py
 
-     # Interactive mode
-     python main.py --interactive
+     (ii) CLI -- Single query (auto pattern):
+        python main.py --query "What technology powers large language models?"
 
-     # Demo queries + verbose scratchpad
-     python main.py --verbose
+     (iii) Force a specific pattern:
+        python main.py --query "Verify: Is Python older than Java?" --forced-pattern crag
+
+     (iv) CLI -- Interactive mode:
+        python main.py --interactive
+
+     (v) Force a specific pattern:
+        python main.py --query "..." --forced-pattern react
+        python main.py --query "..." --forced-pattern crag
+        python main.py --query "..." --forced-pattern selfrag
+
+     (vi) Demo queries + verbose scratchpad:
+        python main.py --verbose
+
+     (vii) Run the regression suite:
+         python eval/run_eval.py
 
 
      Available flags:
@@ -138,7 +172,7 @@ textKey directories:
      --verbose         Print full scratchpad trace     off
 
 
-  2. Streamlit web application
+  3. Streamlit web application
 
      streamlit run webapp/app.py
 
@@ -152,14 +186,14 @@ textKey directories:
 ## Configuration
   All runtime settings live in config/settings.py (dataclass). Important fields:
   
-  Setting                      Default                Description  
-  model                        openai/gpt-oss-120b    Groq model name
-  max_tokens                   500                    Default generation limit
-  max_hops                     6                      Maximum reasoning steps
-  confidence_threshold         0.75                   Stop early when confidence is high
-  selfrag_relevance_threshold  0.10                   Self-RAG relevance gate
-  crag_score_threshold         0.50                   CRAG correction trigger
-  forced_pattern               None                   Override automatic selection  
+  Setting                       Default                Description  
+  model                         openai/gpt-oss-120b    Groq model name
+  max_tokens                    500                    Default generation limit
+  max_hops                      6                      Maximum reasoning steps
+  confidence_threshold          0.75                   Stop early when confidence is high
+  selfrag_relevance_threshold   0.10                   Self-RAG relevance gate
+  crag_score_threshold          0.50                   CRAG correction trigger
+  forced_pattern                None                   Override automatic selection  
 
 
 ## Supported Document Types
@@ -170,5 +204,36 @@ textKey directories:
   Text     .txt          Plain text
   CSV      .csv          Schema detection + deterministic analytics  
 
+## Known limitations
+  - Synthesis occasionally fails on an empty completion from the underlying model provider under load — the system retries automatically and falls back to a labeled raw-        findings summary rather than losing the gathered research, but this is a known upstream intermittency, not something fully eliminable client-side.
+    
+  - Derived multi-column CSV computation (e.g. "engineer a variance column") currently detects and computes common patterns (subtraction, per-capita division) but isn't a       general-purpose formula engine.
+    
+  - OCR quality depends on the source scan; heavily degraded scans may still produce noisy extracted text even with Tesseract configured correctly.
+
 
 ## Example Queries
+
+   Test 1.1: Historical Context vs. Real-Time Web Comparison
+   "Extract the core architectural dimensions and parameters of the model from the uploaded document, and search the web for current 2026 SOTA LLM benchmarks to construct       a performance comparison table."
+
+   Test 1.2: Cross-Source Multi-Hop Reasoning
+   "Read the financial results from the attached Q2 earnings PDF, identify our top competitor's revenue mentioned on page 4, search the web to find that competitor's actual     Q2 2026 reported revenue, and calculate our market share variance."
+
+   Test 2.1: False Premise & Non-Existent Feature Detection
+   "Based on the attached employee handbook PDF, what is the exact policy and payout rate for the company's 2026 Cryptocurrency Staking Bonus program?"
+
+   Test 2.2: Structured Data Schema Validation
+   "Filter the attached CSV dataset to show the top 5 customers with the highest churn_risk_score and list their assigned Account Manager names."
+
+   Test 3.1: Complex Mathematical Derivation & Code Verification
+   "Extract the quarterly budget and actual spend per department from the attached financial document, engineer a Spend_Variance column, and compute the exact spend per         capita for each department step-by-step."
+
+   Test 3.2: Verbatim Citation & Zero-Hallucination Compliance
+   "Summarize the liability limitations in Section 8 of the attached contract PDF. Provide exact line citations and list the three legal exceptions verbatim."
+
+
+## License
+  MIT — see LICENSE.
+   
+    
