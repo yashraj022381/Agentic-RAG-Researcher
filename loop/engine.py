@@ -167,6 +167,37 @@ class ResearchLoop:
                 return False
         return True
 
+    def _minimal_synthesis_attempt(self, query: str, scratchpad) -> Optional[str]:
+        """When the pattern's full synthesis prompt fails (often correlated
+        with a large, complex prompt on a reasoning model), try once more
+        with a drastically simpler prompt and lower temperature — much less
+        likely to trigger an empty completion, even if the result is less
+        polished than the full synthesis would have been."""
+        calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
+        calc_note = f"\nComputed result: {calc_steps[-1].observation}\n" if calc_steps else ""
+        context = scratchpad.all_observations(max_chars=3000, per_step_chars=1000)
+
+        prompt = (
+            f"Answer this question in 2-4 short sentences, using ONLY the facts below. "
+            f"Do not invent anything not shown here.\n\n"
+            f"QUESTION: {query}\n\nFACTS:\n{context}\n{calc_note}\n"
+            f"Write the answer as plain text now, nothing else:"
+        )
+        try:
+            raw = self.llm.chat(
+                system="Answer directly and briefly using only the given facts. Plain text only.",
+                user=prompt,
+                max_tokens=500,
+                purpose="minimal_synthesis_retry",
+            )
+            text = (raw or "").strip()
+            if text and not text.startswith("{") and len(text) > 20:
+                return text
+        except Exception as e:
+            print(f"      [DEBUG] Minimal synthesis retry also failed: {e}")
+        return None
+    
+
     def run(self, query: str, pattern: "BasePattern", on_hop=None, plan=None) -> ResearchResult:#on_hop: Optional[Callable] = None, plan: Optional[dict] = None) -> ResearchResult:
 
         print("      [DEBUG] engine.py version: v23-finish-gate-fix")
@@ -547,39 +578,55 @@ class ResearchLoop:
             if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str
                     or "too large" in err_str or "413" in err_str
                     or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
-                calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
-                calc_note = f"\n\nComputed result: {calc_steps[-1].observation}" if calc_steps else ""
-                raw_findings = scratchpad.all_observations()[:1200]
-                try:
-                    raw_findings = clean_answer_text(raw_findings)
-                except Exception:
-                    pass
-                final_answer = (
-                    f"Research completed through {scratchpad.hop_count} hop(s), but the "
-                    f"final synthesis step failed ({str(e)[:150]}).{calc_note}\n\n"
-                    #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
-                    f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
-                )
+                retry_answer = self._minimal_synthesis_attempt(query, scratchpad)
+
+                if retry_answer:
+                    final_answer = retry_answer
+                else:
+                    calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
+                    calc_note = f"\n\nComputed result: {calc_steps[-1].observation}" if calc_steps else ""
+                    raw_findings = scratchpad.all_observations()[:1200]
+                    try:
+                        raw_findings = clean_answer_text(raw_findings)
+                    except Exception:
+                        pass
+                    final_answer = (
+                        f"Research completed through {scratchpad.hop_count} hop(s), but the "
+                        f"final synthesis step failed ({str(e)[:150]}).{calc_note}\n\n"
+                        #f"Here's what was found:\n{raw_findings}"
+                        #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
+                        f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
+                    )
             else:
                 #if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
                 final_answer = f"Research completed. {str(e)}"
+                
         except Exception as e:
             err_str = str(e).lower()
-            if "too large" in err_str or "413" in err_str or "reduce your message size" in err_str:
-                calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
-                calc_note = f"\n\nComputed result: {calc_steps[-1].observation}" if calc_steps else ""
-                raw_findings = scratchpad.all_observations()[:1200]
-                try:
-                    raw_findings = clean_answer_text(raw_findings)
-                except Exception:
-                    pass
-                final_answer = (
-                    f"Research completed through {scratchpad.hop_count} hop(s), but the final "
-                    f"synthesis step failed because the combined findings exceeded the model's "
-                    #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
-                    f"token limit.{calc_note}\n\n"
-                    f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
-                )
+            if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str
+                    or "too large" in err_str or "413" in err_str
+                    or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
+                    
+                retry_answer = self._minimal_synthesis_attempt(query, scratchpad)
+                        
+                if retry_answer:
+                    final_answer = retry_answer
+                else:
+                    #"too large" in err_str or "413" in err_str or "reduce your message size" in err_str:
+                    calc_steps = [s for s in scratchpad.steps if s.tool_used == "calculator" and s.observation]
+                    calc_note = f"\n\nComputed result: {calc_steps[-1].observation}" if calc_steps else ""
+                    raw_findings = scratchpad.all_observations()[:1200]
+                    try:
+                        raw_findings = clean_answer_text(raw_findings)
+                    except Exception:
+                        pass
+                    final_answer = (
+                        f"Research completed through {scratchpad.hop_count} hop(s), but the final "
+                        f"synthesis step failed because the combined findings exceeded the model's "
+                        #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
+                        f"token limit.{calc_note}\n\n"
+                        f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
+                    )
             else:
                 #if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
                 final_answer = f"Research completed. {str(e)}"
