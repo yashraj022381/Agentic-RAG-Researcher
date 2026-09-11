@@ -5,7 +5,8 @@ _LEAKED_TAGS = ("thought", "action", "observation", "final_answer")
 # Punctuation that indicates a sentence (or list item, or heading) actually
 # finished cleanly.
 _SENTENCE_ENDERS = ('.', '!', '?', '"', "'", ')', ']', ':', '```')
- 
+
+_INTENTIONAL_FALLBACK_MARKER = "I gathered the relevant information across"
  
 def _looks_truncated(text: str) -> bool:
     """Heuristic: a long answer that doesn't end in normal closing
@@ -53,6 +54,9 @@ def clean_answer_text(text: str) -> str:
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
     cleaned = "\n".join(line.rstrip() for line in cleaned.split("\n"))
     cleaned = cleaned.strip()
+
+    if cleaned.startswith(_INTENTIONAL_FALLBACK_MARKER):
+        return cleaned
  
     if _looks_truncated(cleaned):
         trimmed = _trim_to_last_complete_sentence(cleaned)
