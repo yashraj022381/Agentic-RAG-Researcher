@@ -590,12 +590,17 @@ class ResearchLoop:
                         raw_findings = clean_answer_text(raw_findings)
                     except Exception:
                         pass
-                    final_answer = (
-                        f"Research completed through {scratchpad.hop_count} hop(s), but the "
-                        f"final synthesis step failed ({str(e)[:150]}).{calc_note}\n\n"
+                    #final_answer = (
+                    #    f"Research completed through {scratchpad.hop_count} hop(s), but the "
+                    #    f"final synthesis step failed ({str(e)[:150]}).{calc_note}\n\n"
                         #f"Here's what was found:\n{raw_findings}"
                         #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
-                        f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
+                    #    f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
+                    #)
+                    final_answer = (
+                        f"I gathered the relevant information across {scratchpad.hop_count} step(s), "
+                        f"but wasn't able to write a fully synthesized summary this time.{calc_note}\n\n"
+                        f"Here's what was found:\n{raw_findings}"
                     )
             else:
                 #if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
@@ -620,12 +625,17 @@ class ResearchLoop:
                         raw_findings = clean_answer_text(raw_findings)
                     except Exception:
                         pass
-                    final_answer = (
-                        f"Research completed through {scratchpad.hop_count} hop(s), but the final "
-                        f"synthesis step failed because the combined findings exceeded the model's "
+                    #final_answer = (
+                    #    f"Research completed through {scratchpad.hop_count} hop(s), but the final "
+                    #    f"synthesis step failed because the combined findings exceeded the model's "
                         #f"Based on what was found: {scratchpad.all_observations()[:150]}.{calc_note}\n\n"
-                        f"token limit.{calc_note}\n\n"
-                        f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
+                    #    f"token limit.{calc_note}\n\n"
+                    #    f"Raw findings gathered (not synthesized — treat as unverified):\n{raw_findings}"
+                    #)
+                    final_answer = (
+                        f"I gathered the relevant information across {scratchpad.hop_count} step(s), "
+                        f"but wasn't able to write a fully synthesized summary this time.{calc_note}\n\n"
+                        f"Here's what was found:\n{raw_findings}"
                     )
             else:
                 #if ("rate_limit" in err_str or "429" in err_str or "empty response" in err_str or "too large" in err_str or "413" in err_str or "tool_use_failed" in err_str or "tool choice is none" in err_str or "called a tool" in err_str):
