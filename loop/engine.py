@@ -355,17 +355,19 @@ class ResearchLoop:
 
                 
             if hop == 1 and tool_name not in ("document_reader", "csv_analyzer"):
-                try:
-                    has_docs = any(
-                        f.is_file() and f.suffix.lower() in {".pdf", ".docx", ".txt", ".md", ".csv"}
-                        for f in Path(DOCS_DIR).rglob("*")
-                    )
-                except Exception:
-                    has_docs = False
-                if has_docs:
-                    preferred = "csv_analyzer" if (plan and plan.get("needs_data")) else "document_reader"
-                    print(f"      ⚠️ Model chose '{tool_name}' on hop 1 despite local documents existing — overriding to '{preferred}'.")
-                    tool_name = preferred
+                needs_local_content = bool(plan and (plan.get("needs_document") or plan.get("needs_data")))
+                if needs_local_content:
+                    try:
+                        has_docs = any(
+                            f.is_file() and f.suffix.lower() in {".pdf", ".docx", ".txt", ".md", ".csv"}
+                            for f in Path(DOCS_DIR).rglob("*")
+                        )
+                    except Exception:
+                        has_docs = False
+                    if has_docs:
+                        preferred = "csv_analyzer" if (plan and plan.get("needs_data")) else "document_reader"
+                        print(f"      ⚠️ Model chose '{tool_name}' on hop 1 despite local documents existing — overriding to '{preferred}'.")
+                        tool_name = preferred
 
             if gather_tools_required:
                 not_yet_tried = [t for t in gather_tools_required if t not in tools_tried]
